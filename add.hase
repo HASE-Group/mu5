@@ -1,0 +1,68 @@
+// Project	MU5
+// Entity	ADD
+// File		add.hase
+// Date		March 2013
+
+$class_decls
+
+  prop * myPROP;
+  decode * myDecode;
+
+// structures and variables
+
+ bool F1held;
+ int clock, address;
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myDecode = (decode*)sim.get_entity(sim.get_entity_id("DECODE"));
+
+  address = 0;
+
+// predicates
+
+// variables
+
+
+while (!myPROP->Stop)
+{
+ sim_get_next(ev);
+ if (ev.from_port(clock_in))
+  {
+   SIM_CAST(int, clock, ev);
+   if (clock < 0)
+    {
+     F1.Type = 'I';
+     my_state = ADD_IDLE;
+     dump_state();
+    }
+   else
+    {
+    if (myPROP->F1heldbyF3)
+     {my_state = ADD_HELD;}
+    else
+    {
+     F1 = myDecode->DFout;
+     NM = myDecode->name;
+     BS = myDecode->base;
+     if (F1.Type == 'I')
+      {my_state = ADD_IDLE;}
+     else
+      {
+       my_state = ADD_BUSY;
+       address = NM + BS;
+       if (UpdateSF(F1))
+	{myDecode->RSF = address;}
+      }
+     }
+    dump_state();
+   }		// end of normal clock action 
+  }		// end of clock event
+}

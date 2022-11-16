@@ -1,0 +1,159 @@
+// Project	MU5
+// Entity	PROP
+// File		prop.hase
+// Date		March 2013
+
+$class_decls
+
+//  ibu * myIBU;
+  execute * myExecute;
+
+// structures and variables
+
+ bool Stop, Clear;
+ bool DFheldbyF3, F1heldbyF3, F2heldbyF3, F3heldbyF3;
+ bool F3holdDF, F3holdF1, F3holdF2, F3holdF3;
+ bool F3freeDF, F3freeF1, F3freeF2, F3freeF3;
+ bool DFholdDF, DFheldbyDF, DFfreeDF;
+ bool F4held;
+
+ int CO, clock, Time;
+ t_r_request co_to_ibu;
+
+// classes
+
+void Branch();
+void Trace();
+
+$class_defs
+
+void prop::Branch()
+{
+ co_to_ibu.address = myExecute->CO;
+ co_to_ibu.Type = 'T';
+ send_READ_REQ(to_ibu,co_to_ibu);
+}
+
+void prop::Trace()		// send branch "From" address to IBU
+{
+ co_to_ibu.address = myExecute->CO;
+ co_to_ibu.Type = 'F';
+ send_READ_REQ(to_ibu,co_to_ibu);
+
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myExecute = (execute*)sim.get_entity(sim.get_entity_id("EXECUTE"));
+
+  Stop = false;
+  Clear = false;
+  DFheldbyDF = false;
+  DFheldbyF3 = false;
+  F1heldbyF3 = false;
+  F2heldbyF3 = false;
+  F3heldbyF3 = false;
+  F3holdDF = false;
+  F3holdF1 = false;
+  F3holdF2 = false;
+  F3holdF3 = false;
+  DFfreeDF = false;
+  F3freeDF = false;
+  F3freeF1 = false;
+  F3freeF2 = false;
+  F3freeF3 = false;
+  F4held = false;
+
+  beat = 1;
+  sim_hold(1);
+  co_to_ibu.address = myExecute->CO;
+  co_to_ibu.Type = 'T';
+  send_READ_REQ(to_ibu,co_to_ibu);
+
+while (!Stop)
+{
+ if (Clear)
+  {clock = -1;}
+ else
+  {clock = beat;}
+
+   send_CLOCK(execute_clock,clock);
+   sim_hold(1);
+   send_CLOCK(assemble_clock,clock);
+   sim_hold(1);
+
+   if (F3holdF3)
+    {
+     F3heldbyF3 = true;
+     F3holdF2 = true;
+     F3holdF3 = false;
+     }
+   if ((F3freeF3) || Clear)
+    {
+     F3heldbyF3 = false;
+     F3freeF2 = true;
+     F3freeF3 = false;
+    }
+   send_CLOCK(read_clock,clock);
+   sim_hold(1);
+
+   if (F3holdF2)
+    {
+     F2heldbyF3 = true;
+     F3holdF1 = true;
+     F3holdF2 = false;
+    }
+   if ((F3freeF2) || Clear)
+    {
+     F2heldbyF3 = false;
+     F3freeF1 = true;
+     F3freeF2 = false;
+    }
+   send_CLOCK(assoc_clock,clock);
+   sim_hold(1);
+
+   if (F3holdF1)
+    {
+     F1heldbyF3 = true;
+     F3holdDF = true;
+     F3holdF1 = false;
+    }
+   if ((F3freeF1) || Clear)
+    {
+     F1heldbyF3 = false;
+     F3freeDF = true;
+     F3freeF1 = false;
+    }
+    send_CLOCK(add_clock,clock);
+    sim_hold(1);
+
+   if (F3holdDF)
+    {
+     DFheldbyF3 = true;
+     F3holdDF = false;
+    }
+   if ((F3freeDF) || Clear)
+    {
+     DFheldbyF3 = false;
+     F3freeDF = false;
+    }
+    if (DFholdDF)
+    {
+     DFheldbyDF = true;
+     DFholdDF = false;
+    }
+    if ((DFfreeDF) || Clear)
+    {
+     DFheldbyDF = false;
+     DFfreeDF = false;
+    }
+   send_CLOCK(decode_clock,clock);
+   Clear = false;
+   sim_get_next(ev);			// from Execute or NS Read
+   SIM_CAST(int, clock, ev);
+
+   beat ++;
+   dump_state();
+}

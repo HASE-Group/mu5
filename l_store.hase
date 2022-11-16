@@ -1,0 +1,181 @@
+// Project	MU5
+// Entity	LOCAL STORE
+// File		l_store.hase
+// Date		March 2013
+
+$class_decls
+
+ prop * myPROP;
+ bool i_block_error, r_block_error, w_block_error;;
+
+// structures and variables
+
+  int address, line;
+  t_mu5_instrn i_mem_buffer;
+  t_double_int d_mem_buffer;
+  t_char_word ch_mem_buffer;
+  t_Dinstrn_pkt i_to_sac;
+  t_mem_data_pkt d_to_sac;
+  t_LSr_request i_request, r_request;
+  t_LSw_request w_request;
+
+char ch1, ch2;
+int i;
+
+int Time;
+ int byte3_mask, byte2_mask, byte1_mask, byte0_mask;
+
+// classes
+
+$class_defs
+
+$body
+
+ byte3_mask = -1 ^ 255;
+ byte2_mask = -1 ^ (255 << 8);
+ byte1_mask = -1 ^ (255 << 16);
+ byte0_mask = -1 ^ (255 << 24);
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+
+  i_block_error = false;
+  r_block_error = false;
+  w_block_error = false;
+
+while (!myPROP->Stop)
+{
+ sim_get_next(ev);
+
+ if (ev.type() == LS_I_FETCH)
+  {
+   SIM_CAST(t_LSr_request, i_request, ev);
+   my_state = L_BUSY;
+   dump_state();
+   line = i_request.line << 1; // instruction accesses require two 32-bit accesses
+
+   if (i_request.block == 1)
+    {
+     i_mem_buffer = block1[line];
+     i_to_sac.instrn0 = i_mem_buffer;
+     i_mem_buffer = block1[line+1];
+     i_to_sac.instrn1 = i_mem_buffer;
+    }
+   else
+    {
+     i_block_error = true;
+     myPROP->Stop = true;
+    }
+   i_to_sac.Type = i_request.Type;
+   i_to_sac.tag = i_request.tag;
+   sim_hold(4);
+   send_D_INSTRN(inst_to_sac, i_to_sac);
+   my_state = L_IDLE;
+   dump_state();
+   }
+
+ if (ev.type() == LS_READ_REQ)
+    {
+   SIM_CAST(t_LSr_request, r_request, ev);
+   my_state = L_BUSY;
+   dump_state();
+   line = r_request.line;	// data accesses require one 64-bit access
+
+   if (r_request.block == 0)
+    {
+     d_mem_buffer = block0[line];
+    }
+   else if (r_request.block == 2)
+    {
+     d_mem_buffer = block2[line];
+    }
+   else if (r_request.block == 3)
+    {
+     ch_mem_buffer = block3[line];
+
+     d_mem_buffer.word0 = (int)ch_mem_buffer.word[3];
+     d_mem_buffer.word0 = d_mem_buffer.word0 | ((int)ch_mem_buffer.word[2] << 8);
+     d_mem_buffer.word0 = d_mem_buffer.word0 | ((int)ch_mem_buffer.word[1] << 16);
+     d_mem_buffer.word0 = d_mem_buffer.word0 | ((int)ch_mem_buffer.word[0] << 24);
+
+     d_mem_buffer.word1 = (int)ch_mem_buffer.word[7];
+     d_mem_buffer.word1 = d_mem_buffer.word1 | ((int)ch_mem_buffer.word[6] << 8);
+     d_mem_buffer.word1 = d_mem_buffer.word1 | ((int)ch_mem_buffer.word[5] << 16);
+     d_mem_buffer.word1 = d_mem_buffer.word1 | ((int)ch_mem_buffer.word[4] << 24);
+    }
+   else
+    {
+     r_block_error = true;
+     myPROP->Stop = true;
+    }
+   d_to_sac.Type = r_request.Type;
+   d_to_sac.tag = r_request.tag;
+   d_to_sac.word0 = d_mem_buffer.word0;
+   d_to_sac.word1 = d_mem_buffer.word1;
+   sim_hold(4);
+   send_MEM_DATA_PKT(data_to_sac, d_to_sac);
+   my_state = L_IDLE;
+   dump_state();
+  }		// end of read event from sac
+
+ if (ev.type() == LS_WRITE_REQ)
+  {
+   SIM_CAST(t_LSw_request, w_request, ev);
+   my_state = L_BUSY;
+   dump_state();
+   line = w_request.line;	// data accesses require one 64-bit access
+   d_mem_buffer.word0 = w_request.word0;
+   d_mem_buffer.word1 = w_request.word1;
+   if (w_request.block == 0)
+    {block0.Update(line, d_mem_buffer);}
+   else if (w_request.block == 2)
+    {block2.Update(line, d_mem_buffer);}
+   else if (w_request.block == 3)
+    {
+     ch_mem_buffer.word[3] = i_to_ch(w_request.word0 & 255);
+     w_request.word0 = w_request.word0 >> 8;
+     ch_mem_buffer.word[2] = i_to_ch((w_request.word0) & 255);
+     w_request.word0 = w_request.word0 >> 8;
+     ch_mem_buffer.word[1] = i_to_ch((w_request.word0) & 255);
+     w_request.word0 = w_request.word0 >> 8;
+     ch_mem_buffer.word[0] = i_to_ch((w_request.word0) & 255);
+
+     ch_mem_buffer.word[7] = i_to_ch(w_request.word1 & 255);
+     w_request.word1 = w_request.word1 >> 8;
+     ch_mem_buffer.word[6] = i_to_ch((w_request.word1) & 255);
+     w_request.word1 = w_request.word1 >> 8;
+     ch_mem_buffer.word[5] = i_to_ch((w_request.word1) & 255);
+     w_request.word1 = w_request.word1 >> 8;
+     ch_mem_buffer.word[4] = i_to_ch((w_request.word1) & 255);
+     block3.Update(line, ch_mem_buffer);
+   }
+   else
+    {
+     w_block_error = true;
+     myPROP->Stop = true;
+    }
+   sim_hold(4);
+   my_state = L_IDLE;
+   dump_state();
+   }
+}		// end of while
+
+$report
+
+ if (i_block_error)
+  {printf("Local Store: instruction address error, block %d, line %d - instructions are in block 1\n", i_request.block, i_request.line);}
+
+ if (r_block_error)
+  {
+   printf("Local Store: read block address error, block %d, line %d - integers are in blocks 0 & 2\n", r_request.block, r_request.line);
+   printf("block = %d, line = %d\n", r_request.block, line);
+  }
+
+ if (w_block_error)
+  {
+   printf("Local Store write: block address error, block %d, line %d - integers are in blocks 0 & 2\n", w_request.block, w_request.line);
+   printf("block = %d, line = %d\n", w_request.block, line);
+  }
+
+

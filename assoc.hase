@@ -1,0 +1,172 @@
+// Project	MU5
+// Entity	ASSOCIATE
+// File		assoc.hase
+// Date		March 2013
+
+$class_decls
+
+  prop * myPROP;
+  add * myAdd;
+  ns_read * myRead;
+
+// structures and variables
+
+ bool F2held, altered, write_back, write_new_va;
+ int clock, address, NEQaddress, i, j, line, new_line, LRinput;
+ t_NSassoc_field r_buffer, w_buffer, bw_buffer;
+ int Time;
+
+// classes
+
+  int find_new_line();
+  void new_entry();
+  void BW_Set_LA();
+  void Set_LA();
+  void Reset_LA(int);
+  void Reset_Valid();
+
+$class_defs
+
+int assoc::find_new_line()
+{
+ if (LP == myRead->BW.line)
+  {
+   if (LP == 10000000)
+    {LP = 1;}
+   else
+    {LP = LP * 10;}
+  }
+ new_line = Line(LP);
+ r_buffer = Address[new_line];
+ if (r_buffer.Altered == 1)
+  {write_back = true;}
+   if (LP == 10000000)
+    {LP = 1;}
+   else
+    {LP = LP * 10;}
+ return new_line;
+}
+
+void assoc::new_entry()		// called by ns_read
+{
+ NEQaddress = myRead->A3;
+ w_buffer.Address = NEQaddress >> 1;
+ w_buffer.Valid = 1;
+ w_buffer.Altered = 0;
+}
+
+void assoc::BW_Set_LA()			// called by NS_READ executing B ST
+{
+ bw_buffer = Address[Line(myRead->BW.line)];
+ bw_buffer.Altered = 1;
+ Address.Update(Line(myRead->BW.line), bw_buffer);
+}
+
+void assoc::Set_LA()			// called by NS_READ executing STACK
+{
+ w_buffer = Address[Line(myRead->LR)];
+ w_buffer.Altered = 1;
+ Address.Update(Line(myRead->LR), w_buffer);
+}
+
+void assoc::Reset_LA(int wbline)
+{
+ w_buffer = Address[wbline];
+ w_buffer.Altered = 0;
+ Address.Update(wbline, w_buffer);
+}
+
+void assoc::Reset_Valid()
+{
+ w_buffer = Address[Line(myRead->LR)];
+ w_buffer.Valid = 0;
+ w_buffer.Altered = 0;
+ Address.Update(Line(myRead->LR), w_buffer);
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myAdd = (add*)sim.get_entity(sim.get_entity_id("ADD"));
+  myRead = (ns_read*)sim.get_entity(sim.get_entity_id("READ"));
+
+// predicates
+
+ sim_from_port Clock_In(clock_in);
+
+// variables
+
+  F2held = false;
+  write_back = false;
+  write_new_va = false;
+
+while (!myPROP->Stop)
+{
+ if (sim_waiting(ev, Clock_In) > 0)
+  {
+   SIM_CAST(int, clock, ev);
+   if (clock < 0)
+    {
+     F2.Type = 'I';
+     my_state = ASSOC_IDLE;
+     dump_state();
+    }
+   else
+    {
+    if (myPROP->F2heldbyF3)
+     {my_state = ASSOC_HELD;}
+    else
+     {
+      F2 = myAdd->F1;
+      IN = myAdd->address;
+      address = IN >> 1;
+      if (F2.Type == 'I')
+       {my_state = ASSOC_IDLE;}
+      else
+      {				// valid instruction
+       my_state = ASSOC_BUSY;
+       if (NS_access(F2))
+        {
+         LRinput = 0;
+         for (i=0; i<8; i++)
+          {
+           r_buffer = Address[i];
+	   if ( (r_buffer.Address == address) && (r_buffer.Valid == 1) )
+	    {
+	     line = i;
+            LRinput = pow (10, i);
+	    }
+   	 }		// end of Associate
+       }		 // end of NS_access
+     }		// end of Valid instruction
+    }		// end of !held
+   }		// end of normal clock action
+   dump_state();
+  } 		// end of clock input
+ if (write_new_va)
+  {
+   sim_hold(1);
+   write_new_va = false;
+   NEQaddress = myRead->A3;
+   w_buffer.Address = NEQaddress >> 1;
+   w_buffer.Valid = 1;
+   w_buffer.Altered = 0;
+   Address.Update(new_line, w_buffer);
+
+// now need to re-associate
+   LRinput = 0;
+   for (i=0; i<8; i++)
+    {
+     r_buffer = Address[i];
+     if ( (r_buffer.Address == address) && (r_buffer.Valid == 1) )
+      {
+       line = i;
+       LRinput = pow (10, i);
+      }
+     }
+   }
+ else
+  {sim_hold(1);}			// otherwise time stands still
+ }		// end of while loop   

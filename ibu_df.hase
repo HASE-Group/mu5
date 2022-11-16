@@ -1,0 +1,282 @@
+// Project	MU5
+// Entity	IBU Data Flow
+// File		ibu_df.hase
+// Date		August 2013
+
+
+$class_decls
+
+  prop * myPROP;
+  ibu_sr * myIBU_SR;
+
+// structures and variables
+
+  bool discard, unpack, stop;
+  int i, clock;
+  int Tag, Time;
+  int UPrecords;
+
+  t_r_request newCO, i_request;
+  t_Dinstrn_pkt i_from_sac;
+  t_fn_reg i_to_prop;
+  t_i_buffer IBR_input, IBuffer, IBR_nop;
+  t_unpack UP_input, UP_output;
+
+// classes
+
+void ClearIB_Registers();
+
+$class_defs
+
+void ibu_df::ClearIB_Registers()
+{
+   discard = true;
+   i_to_prop.Type = 'I';
+   IBR_nop.instrn.t = Org;
+   IBR_nop.instrn.f = nop;
+   IBR_nop.instrn.k = lit;
+   IBR_nop.instrn.b = Z;
+   IBR_nop.instrn.n = 0;
+   IBR_nop.Type = 'I';
+   IBR_nop.tag = 0;
+   for (i=0; i<8; i++)
+    {IB_Registers.Update(i, IBR_nop);}
+   my_state = IBU_DF_IDLE;
+   dump_state();
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myIBU_SR = (ibu_sr*)sim.get_entity(sim.get_entity_id("IBU_SR"));
+
+// initialise variables
+
+  stop = false;
+  discard = false;
+  unpack = false;
+  Tag = 0;
+  UPrecords = 0;
+  ClearIB_Registers();
+
+  UP_input.instrns = 0;
+  UP_input.msia = 0;
+  UP_input.seq = 0;
+  UP_input.tag = 0;
+  for (i=0; i<4; i++)
+   {
+    UP_Record.Update(i, UP_input);
+   }
+  dump_state();
+
+while (!myPROP->Stop)
+//while (!stop)
+{
+ sim_get_next(ev);
+
+if (ev.from_port(from_ibu_sr))
+ {
+  SIM_CAST(t_unpack, UP_input, ev);
+  if  ((UP_Record[3].instrns > 0) && (UP_Record[2].instrns > 0)
+   && (UP_Record[1].instrns > 0))
+   {UP_Record.Update(0, UP_input);}
+  else if ((UP_Record[3].instrns > 0) && (UP_Record[2].instrns > 0))
+   {UP_Record.Update(1, UP_input);}
+  else if (UP_Record[3].instrns > 0)
+   {UP_Record.Update(2, UP_input);}
+  else
+   {UP_Record.Update(3, UP_input);}
+  UPrecords ++;
+  sim_hold(1);
+ }
+
+ if (ev.from_port(from_sac))
+  {
+   SIM_CAST(t_Dinstrn_pkt, i_from_sac, ev);
+   if (i_from_sac.Type == 'P')		// priority request
+    {discard = false;}
+  sim_hold(1);
+  if (!discard)
+   {
+    my_state = IBU_DF_BUSY;
+    dump_state();
+    UP_output = UP_Record[3];
+
+    if ( (UP_output.instrns == 2)		// normal or Jump to
+     || ((UP_output.instrns == 1) && (UP_output.msia == 0)) )	// Jump from
+     {
+      IBR_input.instrn = i_from_sac.instrn0;
+      IBR_input.tag = i_from_sac.tag;
+      if (UP_output.instrns == 1)
+       {IBR_input.Type = 'S';}
+      else
+       {IBR_input.Type = 'V';}
+
+	  if (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+	      && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+	      && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+	      && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+	      && ((IB_Registers[3].Type == 'V') || (IB_Registers[3].Type == 'S'))
+	      && ((IB_Registers[2].Type == 'V') || (IB_Registers[2].Type == 'S'))
+	      && ((IB_Registers[1].Type == 'V') || (IB_Registers[1].Type == 'S'))
+	     )
+	    {IB_Registers.Update(0, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+              && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+              && ((IB_Registers[3].Type == 'V') || (IB_Registers[3].Type == 'S'))
+              && ((IB_Registers[2].Type == 'V') || (IB_Registers[2].Type == 'S'))
+	     )
+	   {IB_Registers.Update(1, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+              && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+              && ((IB_Registers[3].Type == 'V') || (IB_Registers[3].Type == 'S'))
+	     )
+	  {IB_Registers.Update(2, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+              && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+	     )
+	  {IB_Registers.Update(3, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+	     )
+	  {IB_Registers.Update(4, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+	     )
+	  {IB_Registers.Update(5, IBR_input);}
+
+    else if  (    ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+	     )
+	  {IB_Registers.Update(6, IBR_input);}
+
+    else
+	  {IB_Registers.Update(7, IBR_input);}
+  }
+// dump_state();
+ sim_hold(1);
+
+    if ( (UP_output.instrns == 2)		// normal or Jump from
+     || ((UP_output.instrns == 1) && (UP_output.msia ==  1)) ) // Jump to
+     {
+      IBR_input.instrn = i_from_sac.instrn1;
+      IBR_input.tag = i_from_sac.tag;
+      if (UP_output.seq == 1)
+       {IBR_input.Type = 'S';}
+      else
+       {IBR_input.Type = 'V';}
+
+// Pack_IB_Registers(IBR_input);
+	  if (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+	      && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+	      && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+	      && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+	      && ((IB_Registers[3].Type == 'V') || (IB_Registers[3].Type == 'S'))
+	      && ((IB_Registers[2].Type == 'V') || (IB_Registers[2].Type == 'S'))
+	      && ((IB_Registers[1].Type == 'V') || (IB_Registers[1].Type == 'S'))
+	     )
+	    {IB_Registers.Update(0, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+              && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+              && ((IB_Registers[3].Type == 'V') || (IB_Registers[3].Type == 'S'))
+              && ((IB_Registers[2].Type == 'V') || (IB_Registers[2].Type == 'S'))
+	     )
+	   {IB_Registers.Update(1, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+              && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+              && ((IB_Registers[3].Type == 'V') || (IB_Registers[3].Type == 'S'))
+	     )
+	  {IB_Registers.Update(2, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+              && ((IB_Registers[4].Type == 'V') || (IB_Registers[4].Type == 'S'))
+	     )
+	  {IB_Registers.Update(3, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+              && ((IB_Registers[5].Type == 'V') || (IB_Registers[5].Type == 'S'))
+	     )
+	  {IB_Registers.Update(4, IBR_input);}
+
+    else if  (   ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+              && ((IB_Registers[6].Type == 'V') || (IB_Registers[6].Type == 'S'))
+	     )
+	  {IB_Registers.Update(5, IBR_input);}
+
+    else if  (    ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+	     )
+	  {IB_Registers.Update(6, IBR_input);}
+
+    else
+	  {IB_Registers.Update(7, IBR_input);}
+   }
+    }		// end of !discard
+  sim_hold(1);
+    Time = sim_clock();  
+    UP_input.instrns = 0;
+    UP_input.msia = 0;
+    UP_input.seq = 0;
+    UP_input.tag = -1;
+    UP_Record.Update(3, UP_Record[2]);
+    UP_Record.Update(2, UP_Record[1]);
+    UP_Record.Update(1, UP_Record[0]);
+    UP_Record.Update(0, UP_input);
+    UPrecords --;
+    dump_state();
+
+  }		// end of event from SAC
+
+ if  (ev.from_port(instrn_req))
+  {
+   SIM_CAST(int, clock, ev);
+   sim_hold(1);
+   if ((IB_Registers[7].Type == 'V') || (IB_Registers[7].Type == 'S'))
+    {
+      i_to_prop.t = IB_Registers[7].instrn.t;
+      i_to_prop.f = IB_Registers[7].instrn.f;
+      i_to_prop.k = IB_Registers[7].instrn.k;
+      i_to_prop.b = IB_Registers[7].instrn.b;
+      i_to_prop.n = IB_Registers[7].instrn.n;
+      i_to_prop.Type = IB_Registers[7].Type;
+
+   if (discard)
+    {i_to_prop.Type = 'I';}
+       IB_Registers.Update(7, IB_Registers[6]);
+       IB_Registers.Update(6, IB_Registers[5]);
+       IB_Registers.Update(5, IB_Registers[4]);
+       IB_Registers.Update(4, IB_Registers[3]);
+       IB_Registers.Update(3, IB_Registers[2]);
+       IB_Registers.Update(2, IB_Registers[1]);
+       IB_Registers.Update(1, IB_Registers[0]);
+       IB_Registers.Update(0, IBR_nop);
+
+       myIBU_SR->dec_outstanding = true;
+   }
+  else
+   {
+    i_to_prop.Type = 'I';
+   }
+  } 			     // end of instruction request from PROP
+}				// end of while loop

@@ -1,0 +1,735 @@
+PROJECT(
+	PREAMBLE(
+		 NAME "MU5"
+		 AUTHOR "Roland Ibbett"
+		 VERSION 1.10
+		 DESCRIPTION "MU5" 
+		 )	
+	PARAMLIB (
+
+-- DEFINITION OF INSTRUCTION SET
+
+	ENUM (type [Org, STS, B, ACC]);
+	ENUM (fn [nop, XNB_LD, SN_LD, XNB_PL, XNB_ST, SF_LD, SF_PL, SFNB_PL, SF_ST,
+			 NB_LD, NBSF_PL, NB_PL, NB_ST,
+			BR, BReq, BRne, BRge, BRlt, BRle, BRgr, BRBn, JUMP,
+			Bneq, Bnne, Bnge, Bnlt, Bnle, Bngr, BnBn,
+			 LD, LDD, SLD, ST, ADD, SUB, MUL, DIV,
+			XOR, OR, SHL, AND, RSUB, COMP, CINC, RDIV,
+			XDO_LD, XD_LD, STACK, XD_ST, XDB_LD, XMOD,
+			DO_LD, D_LD, D_SLD, D_ST, DB_LD, MOD,
+			BMVB, BMVE, BSCN, BCMP, BLGC,
+			SMVB, SMVE, SMVF, SCMP, SLGC,
+			 STOP]);
+	ENUM (kind [lit, IR, V32, V64, stack, SB, S0, DB, D0]);
+	ENUM (base [Z, NB, XNB, SF, D]);
+
+	STRUCT(t_mu5_instrn, [ RENUM(type,t,Org),
+				RENUM(fn,f,nop),
+				RENUM (kind, k,0),
+				RENUM (base, b,0),
+			 	RINT (n,0)]);
+
+-- instruction and memory access packet Types
+--			A - ACC instruction with named variable finding NEQ in PROP NS
+--			B - first phase of a Double ACC instruction finding NEQ in PROP NS
+--			C - Compare result
+--			D - first phase of a Double instruction
+--			F - "From address" for branch prediction
+--			I - Invalid instruction
+--			K - acKnowledge packet, e.g. B to Highway to PROP
+--			L - Load phase of a string-string order
+--			M - Modifier request to B-Arith
+--			N - PROP Name Store NEQ request
+--			O - Ordinary instruction request
+--			P - Priority instruction request (as a result of a branch)
+--			R - Read packet to memory
+--			S - Sequence bit in IBU/PROP - first instruction of a predicted
+--			    sequence
+--			  - Store phase of a byte/string order in SEOP
+--			  - SAC = source of NEQ data in PROP Name Store
+--			T - "To address" = new CO value, may be used for branch prediction
+--			U - Version of V used in PROP Associate stage to select operand
+--				read from OBS Name Store
+--			V - Valid instruction
+--			W - Write packet (from B or Acc or to memory)
+--			Z - STOP packet from Acc to PROP
+
+-- definition of memory request packet (instruction and data)
+-- MU5 memory addresses: Process No (4) Segment No (14) 32-bit Word (16)
+-- Segment 0 = Name Segment; here code is in segment 1, arrays are in segment 2
+
+-- DEFINITION OF INSTRUCTION REGISTER & PACKET TYPES
+-- fn register
+
+	STRUCT(t_fn_reg, [RENUM(type,t,0),
+				RENUM(fn,f,0),
+				RENUM (kind,k,0),
+				RENUM (base,b,0),
+			  	RINT (n,0),
+				RCHAR (Type, 'I') ]);
+-- Double instruction packet
+
+	STRUCT (t_Dinstrn_pkt, [RSTRUCT (t_mu5_instrn, instrn0),
+				RSTRUCT (t_mu5_instrn, instrn1),
+				RCHAR (Type, 'I'),
+				RINT(tag, 0)]);
+-- Instruction Buffers
+
+STRUCT (t_i_buffer, [RSTRUCT (t_mu5_instrn, instrn),
+				RCHAR (Type, 'I'),
+				RINT(tag,0)]);
+
+	ARRAY (I_buffers, t_i_buffer);
+
+-- IBU Unpack Record
+
+	STRUCT (t_unpack, [RINT (instrns, 0),
+				RINT (msia, 0),
+				RINT (seq, 0),
+				RINT (tag, 0)]);
+
+	ARRAY (record, t_unpack);
+
+-- Arithmetic unit instructions
+
+	STRUCT (t_au_instrn, [RENUM (fn,f,0),
+				RINT (operand,0),
+				RCHAR (Type, 'I')]);
+
+-- MISCELLANEOUS REGISTER TYPES
+-- BW
+	STRUCT (t_bw, [RINT (line,0),
+	       	      RINT (half,0)]);
+
+-- Test register
+	STRUCT (t_test_reg, [RSTRING (z, "0"),
+			RCHAR (s, '+'),
+			RINT (bn, 0)]);
+
+-- double and triple word registers with separator
+
+	STRUCT (t_dbl_reg0, [RINT (word0, 0),
+			RCHAR (sep,'-'),
+			RINT (word1, 0)]);
+
+	STRUCT (t_tpl_reg0, [RINT (DType, 0),
+			RCHAR (sep0,'-'),
+			RINT (Size, 0),
+			RCHAR (sep1,'-'),
+			RINT (Bound, 0)]);
+
+	STRUCT (t_dbl_reg1, [RINT (word0, 1),		-- used as Line Pointers
+			RCHAR (sep,'-'),
+			RINT (word1, 1)]);
+
+	STRUCT(t_char_reg, [RSTRING (word0, "-"),	-- used for SSA_SSB in Dop
+				RSTRING (word1, "-")]);
+
+	STRUCT(t_int_char_reg, [RINT (word0, 0),	-- used for MASK_BYTE in Dop
+				RSTRING (word1, "-")]);
+
+
+
+
+-- DEFINITIONS OF MEMORY REQUEST PACKET TYPES (TO SAC)
+
+	STRUCT(t_r_request, [RINT (address,0),
+				RINT (tag,0),
+				RCHAR(Type, '-')]);
+
+	STRUCT(t_w_request, [RINT (address,0),
+				RINT (word0,0),
+				RINT (word1,0),
+				RINT (tag,0),
+				RCHAR(Type, '-')]);
+
+-- DEFINITIONS OF MEMORY REQUEST PACKET TYPES (TO LOCAL STORE)
+
+	STRUCT(t_LSr_request, [RINT (block,0),
+				RINT (line,0),
+				RINT (tag,0),				
+				RCHAR(Type, '-')]);
+
+	STRUCT(t_LSw_request, [RINT (block,0),
+				RINT (line,0),
+				RINT (word0,0),
+				RINT (word1,0),
+				RINT (tag,0),
+				RCHAR(Type, '-')]);
+
+	STRUCT (t_mem_data_pkt, [RINT (word0,0),
+				RINT (word1,0),
+				RINT (tag,0),
+				RCHAR (Type, 'I')]);
+
+
+-- DEFINITIONS OF PIPELINE PACKET TYPES
+
+	STRUCT (t_au_result, [RINT (operand,0),
+				RCHAR (Type, 'I')]);
+
+	STRUCT (t_data64_pkt, [RINT (word0,0),
+				RINT (word1,0),
+				RCHAR (Type, 'I')]);
+
+	STRUCT (t_prop_hway, [RINT (dest,0),
+				RENUM (type,t,0),
+				RENUM (fn,f,0),
+				RENUM (kind,k,0),
+				RINT (address,0),
+				RINT (word0,0),
+				RINT (word1,0),
+				RCHAR (Type, 'I')]);
+
+	STRUCT (t_dop_hway, [RINT (dest,0),
+				RENUM (fn,f,0),
+				RINT (word0,0),
+				RINT (word1,0),
+				RCHAR (Type, 'I')]);
+
+	STRUCT (t_dr_pkt, [RENUM (type,t,0),
+				RENUM (fn,f,0),
+				RENUM (kind,k,0),
+				RINT (address,0),
+			   	RINT (word0,0),
+			   	RINT (word1,0),
+			   	RCHAR (Type, 'I')]);
+-- SEOP function register
+
+	STRUCT(t_seop_fn_reg, [RENUM(type,t,0),
+				RENUM(fn,f,0),
+				RENUM (kind,k,0),
+				RCHAR (Type, 'I') ]);
+
+	STRUCT (t_seop_pkt, [RENUM (type,t,0),
+				RENUM (fn,f,0),
+				RENUM (kind,k,0),
+				RINT (address,0),
+				RINT (d,0),
+			   	RINT (word0,0),
+			   	RINT (word1,0),
+			   	RCHAR (Type, 'I')]);
+-- OBS Queue register
+
+	STRUCT (t_q_reg, [RENUM (type,t,0),
+				RENUM (fn,f,0),
+				RENUM (kind, k,0),
+			   	RINT (tag,0),
+				RINT (d,0),
+			   	RINT (word0,0),
+			   	RINT (word1,0),
+			   	RCHAR (Type, 'I')]);
+
+	STRUCT (t_dop_pkt, [RENUM (type,t,0),
+				RENUM (fn,f,0),
+				RENUM (kind, k,0),
+				RINT (d,0),			-- dop bits
+			   	RINT (word0,0),
+			   	RINT (word1,0),
+			   	RCHAR (Type, 'I')]);
+
+	STRUCT (t_dop_wbuff,[RINT (d,0),
+			   	RINT (word0,0),
+			   	RINT (word1,0)]);
+
+
+-- DEFINITIONS OF MEMORY ARRAYS
+
+	ARRAY (instr_mem, t_mu5_instrn);
+
+	STRUCT (t_double_int, [RINT (word0,0),
+				  RINT (word1,0)]);
+
+	ARRAY (data_mem, t_double_int);
+
+	STRUCT(t_char_word, [RSTRING (word, "--------")]);
+
+	ARRAY (char_mem, t_char_word);
+
+	STRUCT (t_jump_trace, [RINT (LP,0),
+				RINT (Valid,0),
+				RINT (From_address,0),
+				RINT (To_address,0)]);
+
+	ARRAY (jump_trace, t_jump_trace);
+
+	STRUCT (t_NSassoc_field, [RINT (Valid,0),
+				   RINT (Altered,0),
+				   RINT (Address,0)]);
+
+	ARRAY (NSassoc_field, t_NSassoc_field);
+
+	STRUCT (t_OBSassoc_field, [RINT (Valid,0),
+				   RINT (Address,0)]);
+
+	ARRAY (OBSassoc_field, t_OBSassoc_field);
+
+	ARRAY (queue_regs, t_q_reg);
+
+	STRUCT (t_OBS_value, [RINT (Full,0),
+				RINT (Altered,0),
+				RINT (word0,0),
+				RINT (word1,0)]);
+
+	ARRAY (OBSvalue_mem, t_OBS_value);
+
+	STRUCT (t_cpr_reg, [RINT (Vaddress,0),
+			  RINT (Raddress,0)]);
+
+	ARRAY (cpr_regs, t_cpr_reg);
+
+-- DEFINITIONS OF LINKS
+	LINK (l_clock,[(CLOCK, RINT(clock,DP))]);
+	LINK (l_upr, [(UPR_PKT, RSTRUCT(t_unpack,DP))]);
+	LINK (l_to_sac, [(I_FETCH, RSTRUCT(t_r_request,DP)),
+			(READ_REQ, RSTRUCT(t_r_request,DP)),
+			 (WRITE_REQ, RSTRUCT(t_w_request,DP))]);
+	LINK (l_to_mem, [(LS_I_FETCH, RSTRUCT(t_LSr_request,DP)),
+			(LS_READ_REQ, RSTRUCT(t_LSr_request,DP)),
+			 (LS_WRITE_REQ, RSTRUCT(t_LSw_request,DP))]);
+	LINK (l_instr, [(INSTRN, RSTRUCT(t_fn_reg,DP)),
+			(D_INSTRN, RSTRUCT(t_Dinstrn_pkt,DP))]);
+	LINK (l_hway, [(PROP_H_PKT, RSTRUCT(t_prop_hway,DP)),
+			(DOP_H_PKT, RSTRUCT(t_dop_hway,DP)),
+			(AU_PKT, RSTRUCT(t_au_instrn,DP)),
+			(RESULT_PKT, RSTRUCT(t_au_result,DP)),
+			(DATA_PKT, RSTRUCT(t_data64_pkt,DP)),
+			(MEM_DATA_PKT, RSTRUCT(t_mem_data_pkt,DP)),
+			(SEOP_PKT, RSTRUCT(t_seop_pkt,DP)),
+			(DR_PKT, RSTRUCT(t_dr_pkt,DP)),
+			(D_INT, RSTRUCT(t_double_int,DP))]);
+	LINK (l_queue, [(Q_PKT, RSTRUCT(t_q_reg,DP))]);
+	LINK (l_result, [(RESULT_PKT, RSTRUCT(t_au_result,DP))]);
+	LINK (l_to_dop, [(DOP_PKT, RSTRUCT(t_dop_pkt,DP))]);
+	LINK (l_ack, [(ACK_PKT, RCHAR(ack,'K'))]);
+	)
+	GLOBALS (
+			  RINT (Max_Time_Left, 20000);
+			)
+
+	ENTITYLIB (
+
+	ENTITY timer (
+	    	   DESCRIPTION ("Time Limiter")
+	           STATES (TIME)
+		   PARAMS 
+		   	  ()	 
+			PORTS ()
+		);
+
+	ENTITY ibu_sr (
+		DESCRIPTION ("IBU - Store Request System")
+		STATES (IBU_SR_IDLE, IBU_SR_BUSY, IBU_SR_HELD)
+		PARAMS (
+			RINT (AC,0);
+			RARRAY (jump_trace, Jump_Trace, 4);
+			)
+		PORTS (
+			PORT(from_prop, l_to_sac, DESTINATION);
+			PORT(to_sac, l_to_sac, SOURCE);
+			PORT(to_ibu_df, l_upr, SOURCE);
+			PORT(to_ibu_sr, l_upr, SOURCE);
+			PORT(from_ibu_sr, l_upr, DESTINATION);
+			)
+		    );
+
+	ENTITY ibu_df (
+		DESCRIPTION ("IBU - Data Flow")
+		STATES (IBU_DF_IDLE, IBU_DF_BUSY, IBU_DF_HELD)
+		PARAMS (
+			RARRAY (record, UP_Record, 4);
+			RARRAY (I_buffers, IB_Registers, 8);
+			)
+		PORTS (
+			PORT (instrn_req,l_clock,DESTINATION);
+			PORT(from_sac, l_instr, DESTINATION);
+			PORT(to_decode, l_instr, SOURCE);
+			PORT(from_ibu_sr, l_upr, DESTINATION);			)
+		    );
+
+	ENTITY prop (
+		DESCRIPTION ("PROP background image")
+		PARAMS (
+			RINT(beat,0);
+			)
+		PORTS (
+			PORT (to_ibu, l_to_sac, SOURCE);
+			PORT (execute_clock,l_clock,SOURCE);
+			PORT (assemble_clock,l_clock,SOURCE);
+			PORT (read_clock,l_clock,SOURCE);
+			PORT (assoc_clock,l_clock,SOURCE);
+			PORT (add_clock,l_clock,SOURCE);
+			PORT (decode_clock,l_clock,SOURCE);
+			PORT (prop_ack, l_clock, DESTINATION);
+			PORT (ns_ack, l_clock, DESTINATION);
+			)
+			);
+
+	ENTITY decode (
+		DESCRIPTION ("PROP decode stage")
+		STATES (DECODE_IDLE, DECODE_BUSY, DECODE_HELD)
+		PARAMS (
+			RSTRUCT (t_fn_reg, DF);
+		       RINT (RNB, 0);
+		       RINT (RSF, 0);
+		       RINT (RXNB, 0);
+			)
+		PORTS (
+			PORT (clock_in,l_clock,DESTINATION);
+			PORT (ibu_clock,l_clock,SOURCE);
+			PORT(from_ibu, l_instr, DESTINATION);
+			PORT(from_execute, l_hway, DESTINATION);
+			)
+		    );
+
+	ENTITY add (
+		DESCRIPTION ("PROP Name+Base add stage")
+		STATES (ADD_IDLE, ADD_BUSY, ADD_HELD)
+		PARAMS (
+			RSTRUCT (t_fn_reg, F1);
+			RINT (BS,0);
+			RINT (NM,0);
+			)
+		PORTS (
+			PORT (clock_in,l_clock,DESTINATION);
+			)
+		    );
+
+	ENTITY assoc (
+		DESCRIPTION ("PROP NS associate stage")
+		STATES (ASSOC_IDLE, ASSOC_BUSY, ASSOC_HELD)
+		PARAMS (
+			RSTRUCT (t_fn_reg, F2);
+			RINT (IN,0);
+			RINT (LP,1);
+	     		RARRAY (NSassoc_field, Address, 8);
+			)
+		PORTS (
+			PORT (clock_in,l_clock,DESTINATION);
+			)
+		    );
+
+	ENTITY ns_read (
+		DESCRIPTION ("PROP NS read stage")
+		STATES (READ_IDLE, READ_BUSY, READ_HELD)
+		PARAMS (
+			RSTRUCT (t_fn_reg, F3);
+			RINT (LR,0);
+			RSTRUCT (t_bw, BW);
+			RINT (A3,0);
+			RINT (S3,0);
+			RSTRING (Held_by, "---");
+	     		  RARRAY (data_mem, Value_Field, 8);
+			)
+		PORTS (
+			PORT (clock_in,l_clock,DESTINATION);
+			PORT (to_sac,l_to_sac,SOURCE);
+			PORT (from_sac,l_hway,DESTINATION);
+			PORT (prop_ack, l_clock, SOURCE);
+			)
+		    );
+
+	ENTITY assemble (
+		DESCRIPTION ("PROP operand assemble stage")
+		STATES (ASSEM_IDLE, ASSEM_BUSY, ASSEM_HELD)
+		PARAMS (
+			RSTRUCT (t_fn_reg, F4);
+			RSTRUCT (t_double_int, VF);
+			RSTRUCT (t_double_int, VU);
+			RINT (A4,0);
+			RINT (S4,0);
+			)
+		PORTS (
+			PORT (clock_in,l_clock,DESTINATION);
+			)
+		    );
+
+	ENTITY execute (
+		DESCRIPTION ("PROP execution stage")
+		STATES (EXECUTE_IDLE, EXECUTE_BUSY, EXECUTE_HELD)
+		PARAMS (
+			RSTRUCT (t_fn_reg, F5);
+			RINT (CO,65536);
+			RSTRUCT (t_test_reg, T1_T2_Bn);
+			RINT (A5,0);
+			RINT (S5,0);
+			RSTRUCT (t_double_int, S6);
+			RSTRUCT (t_prop_hway,HI);
+			RSTRUCT (t_double_int,HO);
+			)
+		PORTS (
+			PORT (clock_in,l_clock,DESTINATION);
+			PORT (to_decode, l_hway, SOURCE);
+			PORT (to_hway, l_hway, SOURCE);
+			PORT (from_hway, l_hway, DESTINATION);
+			PORT (bw_from_hway, l_hway, DESTINATION);
+			PORT (prop_ack, l_clock, SOURCE);
+			)
+		    );
+	ENTITY hway (
+			DESCRIPTION ("Central Highway")
+			STATES (HWAY_IDLE, HWAY_BUSY, HWAY_HELD)
+			PARAMS ()
+			PORTS (
+			XPORT(6, input,l_hway,DESTINATION); 
+			XPORT(5, output,l_hway,SOURCE); 
+		       )
+		);
+
+	ENTITY b_arith (
+		DESCRIPTION ("B Arithmetic Unit")
+		STATES (B_IDLE, B_BUSY, B_HELD)
+		PARAMS (
+			RSTRUCT (t_au_instrn, INSTRN);
+			RINT (B,0);
+			)
+		PORTS (
+			PORT (from_hway, l_hway, DESTINATION);
+			PORT (c_to_hway, l_hway, SOURCE);
+			PORT (d_to_hway, l_hway, SOURCE);
+			PORT (to_dr, l_result, SOURCE);
+			)
+		    );
+
+	ENTITY dr (
+		DESCRIPTION ("Descriptor Addressing Unit")
+		STATES (DR_IDLE, DR_BUSY, DR_HELD)
+		PARAMS (
+			RSTRUCT (t_seop_fn_reg, DRF);
+			RSTRUCT (t_tpl_reg0,DR_TSB);
+			RINT (DR_O, 0);
+			RSTRUCT (t_tpl_reg0,XDR_TSB);
+			RINT (XDR_O, 0);
+			RINT (DN, 0);
+			RINT (NA, 0);
+			)
+		PORTS (
+			PORT (from_hway, l_hway, DESTINATION);
+			PORT (to_hway, l_hway, SOURCE);
+			PORT (from_barith, l_result, DESTINATION);
+			PORT (to_obs, l_hway, SOURCE);
+			PORT (from_obs, l_ack, DESTINATION);
+			PORT (from_dop, l_result, DESTINATION);
+			)
+		    );
+
+	ENTITY obs_ip (
+		DESCRIPTION ("OBS Input Process")
+		STATES (OBS_IP_IDLE, OBS_IP_BUSY, OBS_IP_HELD)
+		PARAMS (
+			RSTRUCT (t_seop_fn_reg, FN);
+			RSTRUCT (t_dbl_reg1,OLP);
+			RSTRUCT (t_dbl_reg0,OLR);
+			RSTRUCT (t_dbl_reg0,AW);
+			RSTRING (Held_by, "---");
+			RARRAY (OBSassoc_field, Address, 16);
+			)
+		PORTS (
+			PORT (from_dr, l_hway, DESTINATION);
+			PORT (to_dr, l_ack, SOURCE);
+			PORT (to_queue, l_queue, SOURCE);
+			PORT (to_bypass, l_queue, SOURCE);
+			PORT (to_sac, l_to_sac, SOURCE);
+			)
+		);
+
+	ENTITY obs_queue (
+		DESCRIPTION ("OBS Queue")
+		STATES (OBS_QUEUE_IDLE, OBS_QUEUE_BUSY)
+		PARAMS (
+			RSTRUCT (t_dbl_reg0, Head_Tail);
+			RARRAY  (queue_regs, Queue, 8);
+			RSTRUCT (t_q_reg, Bypass);
+			)
+		PORTS (
+			PORT (queue_input, l_queue, DESTINATION);
+			PORT (bypass_input, l_queue, DESTINATION);
+			)
+		);
+	ENTITY obs_op (
+		DESCRIPTION ("OBS Output Process")
+		STATES (OBS_OP_IDLE, OBS_OP_BUSY, OBS_OP_SBUSY)
+		PARAMS (
+			RSTRUCT (t_seop_fn_reg, FN);
+			RARRAY  (OBSvalue_mem, Value, 16);
+			)
+		PORTS (
+			PORT (from_queue, l_queue, DESTINATION);	-- not used
+			PORT (to_dop, l_to_dop, SOURCE);
+			PORT (from_dop, l_hway, DESTINATION);
+			PORT (ack_from_dop, l_ack, DESTINATION);
+			PORT (from_sac, l_hway, DESTINATION);
+			)
+		);
+
+	ENTITY dop (
+		DESCRIPTION ("Descriptor Operand Processing Unit")
+		STATES (DOP_IDLE, DOP_BUSY, DOP_HELD)
+		PARAMS (
+			RSTRUCT (t_seop_fn_reg, DopF);
+			RSTRUCT (t_double_int, FR);
+			RSTRING (FRc, "--------")
+			RSTRUCT (t_double_int, GR);
+			RSTRUCT (t_dop_wbuff, WR);
+			RSTRUCT (t_int_char_reg, MASK_BYTE);
+			RSTRUCT (t_char_reg, SSA_SSB);
+
+-- Mask_Fill and SSA_SSB are for display only, the real registers are declared as
+-- mask_fill and ssa_ssb in Dop
+			)
+		PORTS (
+			PORT (from_obs, l_to_dop, DESTINATION);
+			PORT (ack_to_obs, l_ack, SOURCE);
+			PORT (to_obs, l_hway, SOURCE);
+			PORT (to_acc, l_hway, SOURCE);
+			PORT (from_acc, l_result, DESTINATION);
+			PORT (from_hway, l_hway, DESTINATION);
+			PORT (to_hway, l_hway, SOURCE);
+			PORT (to_dr, l_result, SOURCE);
+			)
+		    );
+
+	ENTITY acc (
+		DESCRIPTION ("Accumulator Unit")
+		STATES (ACC_IDLE, ACC_BUSY)
+		PARAMS (
+			RSTRUCT (t_au_instrn, INSTRN);
+--			RFLOAT (ACC,0.0);
+			RINT (ACC,0);
+			)
+		PORTS (
+			PORT (input, l_hway, DESTINATION);
+			PORT (to_dop, l_result, SOURCE);
+			PORT (to_hway, l_hway, SOURCE);
+			)
+		);
+
+	ENTITY sac (
+		DESCRIPTION ("Store Access Control Unit")
+		STATES (SAC_IDLE, SAC_BUSY, SAC_HELD)
+		PARAMS (
+			)
+		PORTS (
+			PORT(from_ibu, l_to_sac, DESTINATION);
+			PORT(to_ibu, l_instr, SOURCE);
+			PORT(from_ns, l_to_sac, DESTINATION);
+			PORT(to_ns, l_hway, SOURCE);
+			PORT(from_obs, l_to_sac, DESTINATION);
+			PORT(to_obs, l_hway, SOURCE);
+			PORT(r_req_to_ls, l_to_mem, SOURCE);
+			PORT(w_req_to_ls, l_to_mem, SOURCE);
+			PORT(i_from_ls, l_instr, DESTINATION);
+			PORT(d_from_ls, l_hway, DESTINATION);
+			)
+		    );
+
+	ENTITY cprs (
+		DESCRIPTION ("Current Page Registers")
+		STATES (CPRS_IDLE, CPRS_BUSY)
+		PARAMS (
+	     		RARRAY (cpr_regs, V_addr_R_addr, 4);
+			)
+		PORTS (
+			)
+		    );
+
+	ENTITY l_store (
+	    	   DESCRIPTION ("Local Store")
+	           STATES (L_IDLE, L_BUSY)
+		   PARAMS 
+		   	  (RINT (Mem_Size, 2048);
+	     		  RARRAY (data_mem, block0, 256);
+	     		  RARRAY (instr_mem, block1, 256);
+	     		  RARRAY (data_mem, block2, 256);
+	     		  RARRAY (char_mem, block3, 256);
+			  )	 
+			PORTS (
+			PORT(r_from_sac, l_to_mem, DESTINATION);
+			PORT(w_from_sac, l_to_mem, DESTINATION);
+			PORT(inst_to_sac, l_instr, SOURCE);
+			PORT(data_to_sac, l_hway, SOURCE);
+		      )
+		    );
+	)
+
+	STRUCTURE(
+
+	AENTITY timer TIME_LIMITER (DESCRIPTION ("Time Counter"));
+	AENTITY ibu_sr IBU_SR ( DESCRIPTION ("IBU - Store Request System"));
+	AENTITY ibu_df IBU_DF ( DESCRIPTION ("BU - Data Flow"));
+	AENTITY prop PROP( DESCRIPTION ("Primary Operand Unit image"));
+	AENTITY decode DECODE ( DESCRIPTION ("PROP Decode stage"));
+	AENTITY add ADD ( DESCRIPTION ("PROP Name+Base Adder stage"));
+	AENTITY assoc ASSOCIATE ( DESCRIPTION ("PROP NS Associate stage"));
+	AENTITY ns_read READ ( DESCRIPTION ("PROP NS Read stage"));
+	AENTITY assemble ASSEMBLE ( DESCRIPTION ("PROP Operand Assembly stage"));
+	AENTITY execute EXECUTE ( DESCRIPTION ("PROP Execution stage"));
+	AENTITY hway HWAY ( DESCRIPTION ("Central Highway"));
+	AENTITY b_arith B_ARITH ( DESCRIPTION ("B Arithmetic Unit"));
+	AENTITY	dr Dr (DESCRIPTION ("Descriptor Addressing Unit"));
+	AENTITY	obs_ip OBS_IP ( DESCRIPTION ("OBS Input Process"));
+	AENTITY	obs_queue OBS_QUEUE ( DESCRIPTION ("OBS Queue"));
+	AENTITY	obs_op OBS_OP ( DESCRIPTION ("OBS Output Process"));
+	AENTITY	dop DOP ( DESCRIPTION ("Descriptor Operand Processing Unit"));
+	AENTITY acc ACC (DESCRIPTION ("Accumulator Unit"));
+
+         AENTITY sac SAC ( DESCRIPTION ("Store Access Control Unit"));
+         AENTITY cprs CPRS ( DESCRIPTION ("Current Page Registers"));
+	AENTITY l_store LOCAL_STORE ( DESCRIPTION ("Local Store"));
+
+
+	CLINK(prop.PROP[to_ibu]->ibu_sr.IBU_SR[from_prop],1);
+	CLINK(prop.PROP[execute_clock]->execute.EXECUTE[clock_in],0);
+	CLINK(prop.PROP[assemble_clock]->assemble.ASSEMBLE[clock_in],0);
+	CLINK(prop.PROP[read_clock]->read.READ[clock_in],0);
+	CLINK(prop.PROP[assoc_clock]->assoc.ASSOCIATE[clock_in],0);
+	CLINK(prop.PROP[add_clock]->add.ADD[clock_in],0);
+	CLINK(prop.PROP[decode_clock]->decode.DECODE[clock_in],0);
+
+	CLINK(ibu_sr.IBU_SR[to_ibu_df]->ibu_df.IBU_DF[from_ibu_sr],0);
+	CLINK(ibu_sr.IBU_SR[to_sac]->sac.SAC[from_ibu],2);
+	CLINK(ibu_sr.IBU_SR[to_ibu_sr]->ibu_sr.IBU_SR[from_ibu_sr],0);
+	CLINK(ns_read.READ[to_sac]->sac.SAC[from_ns],2);
+	CLINK(ns_read.READ[prop_ack]->prop.PROP[ns_ack],0);
+	CLINK(sac.SAC[to_ns]->ns_read.READ[from_sac],2);
+	CLINK(sac.SAC[to_ibu]->ibu_df.IBU_DF[from_sac],2);
+	CLINK(sac.SAC[r_req_to_ls]->l_store.LOCAL_STORE[r_from_sac],2);
+	CLINK(sac.SAC[w_req_to_ls]->l_store.LOCAL_STORE[w_from_sac],2);
+	CLINK(l_store.LOCAL_STORE[inst_to_sac]->sac.SAC[i_from_ls],2);
+	CLINK(l_store.LOCAL_STORE[data_to_sac]->sac.SAC[d_from_ls],2);
+	CLINK(ibu_df.IBU_DF[to_decode]->decode.DECODE[from_ibu],2);
+	CLINK(decode.DECODE[ibu_clock]->ibu_df.IBU_DF[instrn_req],0);
+
+	CLINK(execute.EXECUTE[to_hway]->hway.HWAY[input0],2);
+	CLINK(execute.EXECUTE[to_decode]->decode.DECODE[from_execute],0);
+	CLINK(execute.EXECUTE[prop_ack]->prop.PROP[prop_ack],0);
+
+	CLINK(hway.HWAY[output0]->execute.EXECUTE[from_hway],2);
+	CLINK(hway.HWAY[output1]->execute.EXECUTE[bw_from_hway],2);
+	CLINK(hway.HWAY[output2]->b_arith.B_ARITH[from_hway],2);
+	CLINK(hway.HWAY[output3]->dr.Dr[from_hway],2);
+	CLINK(hway.HWAY[output4]->dop.DOP[from_hway],2);
+
+	CLINK(b_arith.B_ARITH[c_to_hway]->hway.HWAY[input1],2);
+	CLINK(b_arith.B_ARITH[d_to_hway]->hway.HWAY[input2],2);
+	CLINK(b_arith.B_ARITH[to_dr]->dr.Dr[from_barith],2);
+
+	CLINK(dr.Dr[to_hway]->hway.HWAY[input3],0);
+	CLINK(dr.Dr[to_obs]->obs_ip.OBS_IP[from_dr],2);
+	CLINK(obs_ip.OBS_IP[to_dr]->dr.Dr[from_obs],0);
+	CLINK(obs_ip.OBS_IP[to_queue]->obs_queue.OBS_QUEUE[queue_input],0);
+	CLINK(obs_ip.OBS_IP[to_bypass]->obs_queue.OBS_QUEUE[bypass_input],0);
+	CLINK(obs_op.OBS_OP[to_dop]->dop.DOP[from_obs],2);
+	CLINK(obs_ip.OBS_IP[to_sac]->sac.SAC[from_obs],2);
+	CLINK(sac.SAC[to_obs]->obs_op.OBS_OP[from_sac],2);
+	CLINK(dop.DOP[to_obs]->obs_op.OBS_OP[from_dop],2);
+	CLINK(dop.DOP[ack_to_obs]->obs_op.OBS_OP[ack_from_dop],0);
+	CLINK(dop.DOP[to_acc]->acc.ACC[input],2);
+	CLINK(dop.DOP[to_hway]->hway.HWAY[input4],2);
+	CLINK(dop.DOP[to_dr]->dr.Dr[from_dop],0);
+
+	CLINK(acc.ACC[to_dop]->dop.DOP[from_acc],0);
+	CLINK(acc.ACC[to_hway]->hway.HWAY[input5],2);
+	)
+)

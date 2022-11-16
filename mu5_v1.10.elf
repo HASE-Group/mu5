@@ -1,0 +1,172 @@
+TIME_LIMITER : position (100,20)
+TIME_LIMITER : STATES TIME: mu5
+ibu : position (15, 126,0)
+
+IBU_DF : position (19, 145,1)
+IBU_DF : STATES IBU_DF_IDLE:ibu_df IBU_DF_BUSY:ibu_df_busy IBU_DF_HELD:ibu_df_held
+IBU_DF : PORT instrn_req side RIGHT position 80 ICON portblank
+IBU_DF : PORT from_sac side LEFT position 50 ICON portr 
+IBU_DF : PORT to_decode side RIGHT position 80
+IBU_DF : PORT from_ibu_sr side BOTTOM position 20 ICON portblank
+
+IBU_SR : position (19, 250,1)
+IBU_SR : STATES IBU_SR_IDLE:ibu_sr IBU_SR_BUSY:ibu_sr_busy IBU_SR_HELD:ibu_sr_held
+IBU_SR : PORT from_prop side RIGHT position 25 ICON portl
+IBU_SR : PORT to_sac side BOTTOM position 20
+IBU_SR : PORT to_ibu_df side TOP position 20 ICON portblank
+IBU_SR : PORT to_ibu_sr side TOP position 20 ICON portblank
+IBU_SR : PORT from_ibu_sr side TOP position 20 ICON portblank
+
+PROP : position (75,182,0)
+PROP : PORT execute_clock side RIGHT position 0 ICON portblank
+PROP : PORT assemble_clock side RIGHT position 0 ICON portblank
+PROP : PORT read_clock side RIGHT position 0 ICON portblank
+PROP : PORT assoc_clock side RIGHT position 0 ICON portblank
+PROP : PORT add_clock side RIGHT position 0 ICON portblank
+PROP : PORT decode_clock side RIGHT position 0 ICON portblank
+PROP : PORT prop_ack side RIGHT position 0 ICON portblank
+PROP : PORT ns_ack side RIGHT position 0 ICON portblank
+PROP : PORT to_ibu side LEFT position 93
+
+name_store : position (165,196,1)
+
+DECODE : position (90,200,2)
+DECODE : STATES DECODE_IDLE:decode DECODE_BUSY:decode_busy DECODE_HELD:decode_held
+DECODE : PORT clock_in side TOP position 10 ICON portblank
+DECODE : PORT from_execute side TOP position 10 ICON portblank
+DECODE : PORT ibu_clock side TOP position 10 ICON portblank
+DECODE : PORT from_ibu side LEFT position 25 ICON portr
+
+ADD : position (130,200,2)
+ADD : STATES ADD_IDLE:add ADD_BUSY:add_busy ADD_HELD:add_held
+ADD : PORT clock_in side TOP position 10 ICON portblank
+
+ASSOCIATE : position (170,196,2)
+ASSOCIATE : STATES ASSOC_IDLE:assoc ASSOC_BUSY:assoc_busy ASSOC_HELD:assoc_held
+ASSOCIATE : PORT clock_in side TOP position 15 ICON portblank
+
+READ : position (210,196,2)
+READ : STATES READ_IDLE:read READ_BUSY:read_busy READ_HELD:read_held
+READ : PORT clock_in side TOP position 15 ICON portblank
+READ : PORT prop_ack side BOTTOM position 20 ICON portblank
+READ : PORT to_sac side BOTTOM position 10
+READ : PORT from_sac side BOTTOM position 20 ICON portu
+READ : PARAM Held_by MODE VALUE POSITION (3,90)
+
+ASSEMBLE : position (250,200,2)
+ASSEMBLE : STATES ASSEM_IDLE:assem ASSEM_BUSY:assem_busy ASSEM_HELD:assem_held
+ASSEMBLE : PORT clock_in side LEFT position 50 ICON portblank
+
+EXECUTE : position (290,200)
+EXECUTE : STATES EXECUTE_IDLE:execute EXECUTE_BUSY:execute_busy EXECUTE_HELD:execute_held
+EXECUTE : PORT clock_in side LEFT position 50 ICON portblank
+EXECUTE : PORT to_decode side LEFT position 50 ICON portblank
+EXECUTE : PORT to_hway side RIGHT position 30
+EXECUTE : PORT from_hway side TOP position 15 ICON portd
+EXECUTE : PORT bw_from_hway side TOP position 15 ICON portd
+EXECUTE : PORT prop_ack side LEFT position 50 ICON portblank
+
+HWAY : position (350,10)
+HWAY : STATES HWAY_IDLE:hway HWAY_BUSY:hway_busy HWAY_HELD:hway_held
+HWAY : port input0 side LEFT position 220 ICON portr
+HWAY : port input1 side RIGHT position 60 ICON portl
+HWAY : port input2 side RIGHT position 60 ICON portl
+HWAY : port input3 side RIGHT position 260 ICON portblank
+HWAY : port input4 side RIGHT position 140 ICON portl
+HWAY : port input5 side RIGHT position 20 ICON portl
+HWAY : port output0 side LEFT position 140			-- to PROP
+HWAY : port output1 side LEFT position 140			-- to PROP
+HWAY : port output2 side RIGHT position 95			-- to B
+HWAY : port output3 side RIGHT position 240			-- to DR
+HWAY : port output4 side RIGHT position 325		-- to Dop
+
+B_ARITH : position (400, 50)
+B_ARITH : STATES B_IDLE:b_arith B_BUSY:b_arith_busy B_HELD:b_arith_held
+B_ARITH : PORT from_hway side LEFT position 55 ICON portr
+B_ARITH : PORT c_to_hway side LEFT position 20
+B_ARITH : PORT d_to_hway side LEFT position 20
+B_ARITH : PORT to_dr side BOTTOM position 30
+
+seop : position (385,175,0)
+
+Dr : position (400,200,1)
+Dr : STATES DR_IDLE:dr DR_BUSY:dr_busy DR_HELD:dr_held
+Dr : PORT from_hway side LEFT position 50 ICON portr
+Dr : PORT to_hway side LEFT position 70 ICON portblank
+Dr : PORT from_barith side TOP position 30 ICON portd
+Dr : PORT to_obs side RIGHT position 70
+Dr : PORT from_obs side RIGHT position 70
+Dr : PORT from_dop side RIGHT position 70 ICON portblank
+
+obs : position (485,200,1)
+
+OBS_IP : position (490, 245,2)
+OBS_IP : STATES OBS_IP_IDLE:obs_ip OBS_IP_BUSY:obs_ip_busy OBS_IP_HELD:obs_ip_held
+OBS_IP : PORT from_dr side LEFT position 25 ICON portr
+OBS_IP : PORT to_dr side LEFT position 25 ICON portr
+OBS_IP : PORT to_queue side TOP position 30 ICON portblank
+OBS_IP : PORT to_bypass side TOP position 30 ICON portblank
+OBS_IP : PORT to_sac side BOTTOM position 35
+OBS_IP : PARAM Held_by MODE VALUE POSITION (20,35)
+
+OBS_QUEUE : position (505, 220,2)
+OBS_QUEUE : PORT queue_input side BOTTOM position 15 ICON portblank
+OBS_QUEUE : PORT bypass_input side BOTTOM position 15 ICON portblank
+OBS_QUEUE : STATES OBS_QUEUE_IDLE:obs_queue OBS_QUEUE_BUSY:obs_queue_busy
+
+OBS_OP : position (570, 245,2)
+OBS_OP : STATES OBS_OP_IDLE:obs_op OBS_OP_BUSY:obs_op_busy OBS_OP_SBUSY:obs_op_sbusy
+OBS_OP : PORT from_queue side TOP position 40 ICON portblank
+OBS_OP : PORT to_dop side RIGHT position 15
+OBS_OP : PORT from_dop side RIGHT position 35 ICON portl
+OBS_OP : PORT ack_from_dop side RIGHT position 35 ICON portl
+OBS_OP : PORT from_sac side BOTTOM position 35 ICON portu
+
+DOP : position (670,200,1)
+DOP : STATES DOP_IDLE:dop DOP_BUSY:dop_busy DOP_HELD:dop_held
+DOP : PORT from_obs side LEFT position 60 ICON portr
+DOP : PORT to_obs side LEFT position 80 
+DOP : PORT ack_to_obs side LEFT position 80 ICON portblank
+DOP : PORT from_hway side BOTTOM position 30 ICON portu
+DOP : PORT from_acc side TOP position 30
+DOP : PORT to_acc side TOP position 30
+DOP : PORT to_hway side TOP position 30
+DOP : PORT to_dr side LEFT position 80 ICON portblank
+
+
+ACC : position (650,10)
+ACC : STATES ACC_IDLE:acc ACC_BUSY:acc_busy
+ACC : PORT input side BOTTOM position 50 ICON portu
+ACC : PORT to_dop side BOTTOM position 20 ICON portblank
+ACC : PORT to_hway side LEFT position 20
+
+SAC : position (200,380)
+SAC : STATES SAC_IDLE:sac SAC_BUSY:sac_busy SAC_HELD:sac_held
+SAC : PORT from_ibu side LEFT position 20 ICON portr
+SAC : PORT to_ibu side LEFT position 60
+SAC : PORT from_ns side TOP position 20 ICON portd
+SAC : PORT to_ns side TOP position 30
+SAC : PORT from_obs side TOP position 325 ICON portd
+SAC : PORT to_obs side TOP position 405
+SAC : PORT r_req_to_ls side RIGHT position 20
+SAC : PORT w_req_to_ls side RIGHT position 20
+SAC : PORT i_from_ls side RIGHT position 60 ICON portl
+SAC : PORT d_from_ls side RIGHT position 60 ICON portl
+
+CPRS : position (305,415)
+CPRS : STATES CPRS_IDLE:cprs CPRS_BUSY:cprs_busy
+
+LOCAL_STORE : position (660,360)
+LOCAL_STORE : STATES L_IDLE:l_store L_BUSY:l_store_busy
+LOCAL_STORE : PORT r_from_sac side LEFT position 40 ICON portr
+LOCAL_STORE : PORT w_from_sac side LEFT position 40 ICON portr
+LOCAL_STORE : PORT inst_to_sac side LEFT position 80
+LOCAL_STORE : PORT data_to_sac side LEFT position 80
+
+TOPLEVEL : LINKCORNER IBU_SR to_sac SAC from_ibu 1 (0,44)
+TOPLEVEL : LINKCORNER SAC to_ibu IBU_DF from_sac 2 (-195,0) (-195,-245)
+TOPLEVEL : LINKCORNER HWAY output0 EXECUTE from_hway 1 (-40,0)
+TOPLEVEL : LINKCORNER HWAY output1 EXECUTE bw_from_hway 1 (-40,0)
+TOPLEVEL : LINKCORNER DOP to_hway HWAY input4 1 (0,-45)
+TOPLEVEL : LINKCORNER HWAY output4 DOP from_hway 1 (324,0)
+

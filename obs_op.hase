@@ -1,0 +1,273 @@
+// Project	MU5
+// Entity	OBS
+// File		obs_op.hase
+// Start date	October 2013
+// Last update	March 2014
+
+
+$class_decls
+
+  prop * myPROP;
+  obs_ip * myOBS_IP;
+  obs_queue * myQUEUE;
+  dop * myDOP;
+
+// structures and variables
+
+  int Time;
+
+  bool obs_op_ready, dop_ready, send_to_dop, sts_wait, stop;
+  bool Bypass_full, purge, purge_done;
+  char ack;
+  int altered, clock, tag, Q_ready;
+  int nline, vline;
+  t_OBS_value value_buffer;
+  t_q_reg Q_output;
+  t_mem_data_pkt mem_data;
+  t_double_int outputValue, write_data;
+  t_dop_pkt pkt_to_dop;
+
+// classes
+
+ int check_new_Nentry(int nline);
+ int check_new_Ventry(int vline);
+ void reset_full(int tag);
+
+$class_defs
+
+
+int obs_op::check_new_Nentry(int nline)
+{
+ value_buffer = Value[nline];
+ if (value_buffer.Altered == 1)
+  {altered = 1;}
+ else
+  {altered = 0;}
+ return altered;
+}
+
+int obs_op::check_new_Ventry(int vline)
+{
+ value_buffer = Value[vline + 8];
+ if (value_buffer.Altered == 1)
+  {altered = 1;}
+ else
+  {altered = 0;}
+ return altered;
+}
+
+void obs_op::reset_full(int tag)
+{
+ value_buffer = Value[tag];
+ value_buffer.Full = 0;
+ Value.Update(tag, value_buffer);
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myOBS_IP = (obs_ip*)sim.get_entity(sim.get_entity_id("OBS_IP"));
+  myQUEUE = (obs_queue*)sim.get_entity(sim.get_entity_id("OBS_QUEUE"));
+  myDOP = (dop*)sim.get_entity(sim.get_entity_id("DOP"));
+
+// predicates
+
+ sim_from_port Result_In(from_dop);
+ sim_from_port Ack_In(ack_from_dop);
+ sim_from_port SAC_In(from_sac);
+
+// variables
+  obs_op_ready = true;
+  Bypass_full = false;
+  dop_ready = true;
+  purge = false;
+  purge_done = false;
+  send_to_dop = false;
+  sts_wait = false;
+  stop = false;
+  ack = 'K';
+  altered = 0;
+  tag =  0;
+  Q_ready = 0;
+  nline = 0;
+  vline = 0;
+  myQUEUE->Head_Tail.word0 = 0;
+  myQUEUE->Head_Tail.word1 = 0;
+  sim_hold(4);			// prevents obs_op seeing Q_ready before it's been
+				// initialised to 0 by obs_queue
+while (!myPROP->Stop)
+{
+ if (sim_waiting(ev, Result_In) > 0)
+  {
+   my_state = OBS_OP_BUSY;
+   dump_state();
+   SIM_CAST(t_double_int, write_data, ev);
+   if (sts_wait)
+    {
+     tag = Q_output.tag;
+     sts_wait = false;
+     dop_ready = true;
+     obs_op_ready = true;
+    }
+   else
+    {
+     if (myOBS_IP->AW.word0 > 0)
+      {tag = Line(myOBS_IP->AW.word0);}
+     else if (myOBS_IP->AW.word1 > 0)
+      {tag = Line(myOBS_IP->AW.word1 + 8);}
+    }
+   value_buffer.Full = 1;
+   value_buffer.Altered = 1;
+   value_buffer.word0 = write_data.word0;
+   value_buffer.word1 = write_data.word1;
+   Value.Update(tag, value_buffer);
+   myOBS_IP->ResetAW();
+   sim_hold(4);
+   my_state = OBS_OP_IDLE;
+   dump_state();
+  }
+
+ if (sim_waiting(ev, SAC_In) > 0)
+  {
+   my_state = OBS_OP_SBUSY;
+   dump_state();
+   SIM_CAST(t_mem_data_pkt, mem_data, ev)
+   tag = mem_data.tag;
+   value_buffer.Full = 1;
+   value_buffer.Altered = 0;
+   value_buffer.word0 = mem_data.word0;
+   value_buffer.word1 = mem_data.word1;
+   Value.Update(tag, value_buffer);
+   sim_hold(4);
+   my_state = OBS_OP_IDLE;
+   dump_state();
+  }
+
+ Bypass_full = myQUEUE->Bypass_full;
+  if (Bypass_full && obs_op_ready)
+   {
+    obs_op_ready = false;
+    Q_output = myQUEUE->Bypass;
+    FN.t = Q_output.t;
+    FN.f = Q_output.f;
+    FN.k = Q_output.k;
+    FN.Type = Q_output.Type;
+    my_state = OBS_OP_BUSY;
+    dump_state();
+    sim_hold(4);
+    pkt_to_dop.t = Q_output.t;
+    pkt_to_dop.f = Q_output.f;
+    pkt_to_dop.k = Q_output.k;
+    pkt_to_dop.d = Q_output.d;
+    pkt_to_dop.Type = Q_output.Type;
+    value_buffer = Value[Q_output.tag];
+    pkt_to_dop.word0 = value_buffer.word0;
+    pkt_to_dop.word1 = value_buffer.word1;
+
+    if (Q_output.f == ST)				// delete entry
+     {
+      value_buffer.Full = 0;
+      Value.Update(Q_output.tag, value_buffer);
+      myOBS_IP->delete_entry(Q_output.tag);
+     }
+    if (Q_output.f == D_ST || Q_output.f == XD_ST)
+      {				// D_ST and XD_ST value are carried through as literals
+       pkt_to_dop.word0 = Q_output.word0;
+       pkt_to_dop.word1 = Q_output.word1;
+      }
+
+    send_to_dop = true;
+    myQUEUE->Bypass_full = false;
+   }
+
+ Q_ready = myQUEUE->Q_Ready();
+  if ((Q_ready == 1) && obs_op_ready)
+   {
+    obs_op_ready = false;
+    Q_output = myQUEUE->Q_output;
+    FN.t = Q_output.t;
+    FN.f = Q_output.f;
+    FN.k = Q_output.k;
+    FN.Type = Q_output.Type;
+    my_state = OBS_OP_BUSY;
+    dump_state();
+    sim_hold(4);
+
+    if ((Q_output.f == STOP) && !purge)
+     {
+      sim_hold(1);
+      purge = true;
+      my_state = OBS_OP_BUSY;
+      dump_state();
+     }
+
+    value_buffer = Value[Q_output.tag];
+    outputValue.word0 = value_buffer.word0;
+    outputValue.word1 = value_buffer.word1;
+
+     pkt_to_dop.t = Q_output.t;
+     pkt_to_dop.f = Q_output.f;
+     pkt_to_dop.k = Q_output.k;
+     pkt_to_dop.d = Q_output.d;
+     pkt_to_dop.Type = Q_output.Type;
+     if (pkt_to_dop.Type == 'A')
+      {pkt_to_dop.Type = 'V';}
+     if (Q_output.tag == 16)
+      {
+       pkt_to_dop.word0 = Q_output.word0;
+       pkt_to_dop.word1 = Q_output.word1;
+      }
+     else
+      {
+       pkt_to_dop.word0 = outputValue.word0;
+       pkt_to_dop.word1 = outputValue.word1;
+      }
+       if (!purge)
+        {
+         send_to_dop = true;
+         sim_hold(1);
+         myQUEUE->q_delete = true;
+        }
+     sim_hold(4);
+    }		// end of Q ready
+
+  if (sim_waiting(ev, Ack_In) > 0)
+  {
+   SIM_CAST(char, ack, ev);
+   dop_ready = true;
+  }
+
+ else
+   {sim_hold(1);}		// otherwise time stands still
+
+ if (send_to_dop  && dop_ready)
+  {
+   send_DOP_PKT(to_dop, pkt_to_dop);
+   send_to_dop = false;
+   dop_ready = false;
+   if (pkt_to_dop.Type == 'S')
+       {sts_wait = true;}
+   else
+    {
+     obs_op_ready = true;
+     my_state = OBS_OP_IDLE;
+     dump_state();
+    }
+  }
+
+ else if (purge_done && dop_ready)
+  {
+   send_DOP_PKT(to_dop, pkt_to_dop);
+   purge = false;
+   purge_done = false;
+   dop_ready = false;
+   obs_op_ready = true;
+   myQUEUE->q_delete = true;
+   sim_hold(4);
+   my_state = OBS_OP_IDLE;
+   dump_state();
+  }
+}	// end of while loop
+

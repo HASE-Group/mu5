@@ -1,0 +1,537 @@
+// Project	MU5
+// Entity	OBS
+// File		obs_input.hase
+// Start date	October 2013
+// Last update	March 2014
+
+$class_decls
+
+  prop * myPROP;
+  ns_read * myRead;
+  dr * myDR;
+  obs_queue * myQUEUE;
+  obs_op * myOBS_OP;
+
+// structures and variables
+
+  int Time;
+
+  bool OBS_done, OBS_ready, q_write, Restart;
+  bool match;
+  bool AW_wait, purge;
+  bool Bypass_Full;
+  char ack;
+  int altered;
+  int i, address, n_line, v_line, altered_line, new_line, new_tag, tag;
+
+  t_seop_pkt obs_input;
+  t_q_reg Q_input;
+  t_r_request sac_r_request;
+  t_w_request sac_w_request;
+  t_OBSassoc_field addr_buffer;
+  t_OBS_value value_buffer;
+
+// classes
+
+  int Name_Search(int address);
+  int Vector_Search(int address);
+  int new_Nentry(int address);
+  int new_Ventry(int address);
+  int Find_new_n_line();
+  int Find_new_v_line();
+  void delete_entry(int tag);
+  void ResetAW();
+
+$class_defs
+
+int obs_ip::Name_Search(int address)
+{
+  match = false;
+  for (i=0; i<8; i++)
+   {
+    addr_buffer = Address[i];
+    if ((addr_buffer.Address == address) && (addr_buffer.Valid == 1))
+     {
+      match = true;
+      tag = i;
+     }
+   }
+  if (match)
+   {return tag;}
+  else
+   {return -1;}
+ }
+
+int obs_ip::Vector_Search(int address)
+{
+  match = false;
+  for (i=8; i<16; i++)
+   {
+    addr_buffer = Address[i];
+    if ((addr_buffer.Address == address) && (addr_buffer.Valid == 1))
+     {
+      match = true;
+      tag = i;
+     }
+   }
+  if (match)
+   {return tag;}
+   else
+    {return -1;}
+}
+
+int obs_ip::new_Nentry(int address)
+{
+ new_line = OLP.word0;
+// Skip over line if it matches AW or if there's an entry for it in the Queue
+
+ while ((new_line == AW.word0) && myQUEUE->tag_in_Q(Line(new_line)))
+  {
+   if (new_line == 10000000)
+    {new_line = 1;}
+   else
+    {new_line = new_line * 10;}
+  }
+  new_tag = Line(new_line);
+  OLR.word0 = new_line;
+  OLR.word1 = 0;
+
+ addr_buffer = Address[new_tag];
+ addr_buffer.Address = address;
+ addr_buffer.Valid = 1;		// Altered bit is in Value field, reset when new
+				// values are loaded from SAC
+ Address.Update(new_tag, addr_buffer);
+
+// Reset Full bit of this line in Value Field
+ myOBS_OP->reset_full(new_tag);
+
+// now update OLP
+ if (OLP.word0 == 10000000)
+  {OLP.word0 = 1;}
+ else
+  {OLP.word0 = OLP.word0 * 10;}
+ return new_tag;
+}
+
+int obs_ip::new_Ventry(int address)
+{
+ new_line = OLP.word1;
+// Skip over line if it matches AW or if there's an entry for it in the Queue
+
+ while ((new_line == AW.word1) && myQUEUE->tag_in_Q(Line(new_line)))
+  {
+   if (new_line == 10000000)
+    {new_line = 1;}
+   else
+    {new_line = new_line * 10;}
+  }
+ new_tag = Line(new_line) + 8;
+ OLR.word1 = new_line;
+ OLR.word0 = 0;
+
+ addr_buffer = Address[new_tag];
+ addr_buffer.Address = address;
+ addr_buffer.Valid = 1;
+ Address.Update(new_tag, addr_buffer);
+
+// Reset Full bit of this line in Value Field
+ myOBS_OP->reset_full(new_tag);
+
+// now update OLP
+ if (OLP.word1 == 10000000)
+  {OLP.word1 = 1;}
+ else
+  {OLP.word1 = OLP.word1 * 10;}
+ return new_tag;
+}
+
+void obs_ip::delete_entry(int tag)
+{
+ addr_buffer = Address[tag];
+ addr_buffer.Valid = 0;
+ Address.Update(tag, addr_buffer);
+}
+
+void obs_ip::ResetAW()		// called by OBS_OP
+{
+ AW.word0 = 0;
+ AW.word1 = 0;
+ if (AW_wait)
+  {
+   AW_wait = false;
+   Restart = true;
+   strcpy (Held_by, "---");
+   my_state = OBS_IP_IDLE;
+   dump_state();
+  }
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myRead = (ns_read*)sim.get_entity(sim.get_entity_id("READ"));
+  myDR = (dr*)sim.get_entity(sim.get_entity_id("DR"));
+  myQUEUE = (obs_queue*)sim.get_entity(sim.get_entity_id("OBS_QUEUE"));
+  myOBS_OP = (obs_op*)sim.get_entity(sim.get_entity_id("OBS_OP"));
+
+// predicates
+
+ sim_from_port Instrn_In(from_dr);
+
+// variables
+
+  OBS_done = true;
+  OBS_ready = false;
+  match = false;
+  Restart = false;
+  q_write = false;
+  AW_wait = false;
+  purge = false;
+  Bypass_Full = false;
+  ack = 'K';
+  tag = 0;
+  new_tag = 0;
+  altered = 0;
+  myQUEUE->Head_Tail.word0 = 0;
+  myQUEUE->Head_Tail.word1 = 0;
+
+while (!myPROP->Stop)
+{
+ if (Restart && !purge)
+  {
+   Restart = false;
+   OBS_ready = true;
+  }
+
+ if (sim_waiting(ev, Instrn_In) > 0)
+  {
+   SIM_CAST(t_seop_pkt, obs_input, ev);
+   sim_hold(1);
+   FN.t = obs_input.t;
+   FN.f = obs_input.f;
+   FN.k = obs_input.k;
+   FN.Type = obs_input.Type;
+   strcpy (Held_by, "---");
+   my_state = OBS_IP_BUSY;
+   dump_state();
+   OBS_ready = true;
+  }
+
+sim_hold(1);
+
+ if (OBS_ready && !purge)
+  {
+   OBS_ready = false;
+
+   if (obs_input.f == STOP)
+    {
+     if ((AW.word0 > 0) || (AW.word1 > 0))
+      {
+// wait for an outstanding ACC => to complete, then wait for OBS_OP to get STOP
+// instruction and then write any altered buffers back to Local Store
+       AW_wait = true;
+       strcpy (Held_by, "AW2");
+       my_state = OBS_IP_HELD;
+       dump_state();
+      }
+     else
+      {
+       purge = true;
+       my_state = OBS_IP_HELD;
+       strcpy (Held_by, "PGE");
+       dump_state();
+      }
+    }
+
+// check for second ACC ST order
+   if ((obs_input.t == ACC) && (obs_input.f == ST))
+    {
+     if ((AW.word0 > 0) || (AW.word1 > 0))
+      {
+       AW_wait = true;
+       strcpy (Held_by, "AW2");
+       my_state = OBS_IP_HELD;
+       dump_state();
+      }
+    }	// end of ACC & ST & AW > 0
+
+   if ((OBS_done) && !AW_wait)
+    {
+     OBS_done = false;
+
+// Process instruction; operand may be:
+// 	a literal, PROP NS operand being treated as a literal or D_ST or XD_ST
+// 	a PROP NSNE request
+// 	a Name Store request for an ACC instruction and an operand not in PROP
+// 	a data structure access
+
+// literal operands
+
+   if (obs_input.k == lit
+	 || ((obs_input.k == V32 || obs_input.k == V64) && (obs_input.Type == 'V')))
+    {
+     sim_hold(4);
+     Q_input.t = obs_input.t;
+     Q_input.f = obs_input.f;
+     Q_input.k = obs_input.k;
+     Q_input.tag = 16;
+     Q_input.d = obs_input.d;
+     Q_input.word0 = obs_input.word0;
+     Q_input.word1 = obs_input.word1;
+     Q_input.Type = obs_input.Type;
+     OBS_done = true;
+     q_write = true;
+    }
+
+    if ((obs_input.f == D_ST || obs_input.f == XD_ST) && (obs_input.Type == 'D')) 
+    {
+     sim_hold(4);
+     Q_input.t = obs_input.t;
+     Q_input.f = obs_input.f;
+     Q_input.k = obs_input.k;
+     Q_input.tag = 16;
+     Q_input.d = obs_input.d;
+     Q_input.word0 = obs_input.word0;
+     Q_input.word1 = obs_input.word1;
+     Q_input.Type = obs_input.Type;
+     send_Q_PKT(to_bypass, Q_input);
+     sim_hold(4);
+     OBS_done = true;
+     my_state = OBS_IP_IDLE;
+     sim_schedule(to_dr, 0.0, ACK_PKT, SIM_PUT(char, ack));
+    }
+
+// PROP NSNE requests
+
+   else if (obs_input.Type == 'N')
+    {
+     address = obs_input.address >> 1;	// address to SAC is for 64-bit word
+     tag = Name_Search(address);
+     sim_hold(4);
+     if (tag >= 0)	// Send operand to PROP via Bypass, Dop and Highway
+      {			// this is OK for reads, needs to be different for writes
+       OLR.word0 = pow(10, tag);
+       myRead->source = 'O';
+       Q_input.t = obs_input.t;
+       Q_input.f = obs_input.f;
+       Q_input.k = obs_input.k;
+       Q_input.tag = tag;
+       Q_input.d = obs_input.d;
+       Q_input.word0 = obs_input.word0;
+       Q_input.word1 = obs_input.word1;
+       Q_input.Type = obs_input.Type;
+
+
+// check for AWE
+      if ((AW.word0 > 0) && (OLR.word0 == AW.word0))
+//     || ((AW.word1 > 0) && (OLR.word1 == AW.word1)))
+       {
+        AW_wait = true;
+        strcpy (Held_by, "AWE");
+        my_state = OBS_IP_HELD;
+        OBS_done = true;	// i.e. done for now, instruction will be restarted
+       } // end of AWE check
+
+      else
+       {
+        send_Q_PKT(to_bypass, Q_input);
+        OBS_done = true;
+        my_state = OBS_IP_IDLE;
+        sim_schedule(to_dr, 0.0, ACK_PKT, SIM_PUT(char, ack));
+       }
+      }					// end of tag >= 0
+     else // send request to SAC
+      {
+       strcpy (Held_by, "NEQ");
+       my_state = OBS_IP_HELD;
+       dump_state();
+       myRead->source = 'S';
+       sac_r_request.tag = 0;
+       sac_r_request.address = address;
+       sac_r_request.Type = obs_input.Type;
+       sim_hold(2);
+       send_READ_REQ(to_sac, sac_r_request);
+       OBS_done = true;
+       strcpy (Held_by, "---");
+       my_state = OBS_IP_IDLE;
+       sim_schedule(to_dr, 0.0, ACK_PKT, SIM_PUT(char, ack));
+      }
+    }						// end of N type
+
+// ACC name request or data structure access
+
+   else if ( (obs_input.Type == 'A') || (obs_input.Type == 'B')
+	    || ( ((obs_input.k == SB) || (obs_input.k == S0)
+	    ||   (obs_input.k == DB) || (obs_input.k == D0) )
+	    && ((obs_input.Type == 'V') || (obs_input.Type == 'L')
+	    || (obs_input.Type == 'S') || (obs_input.Type == 'C') ))
+	   )
+    {
+     address = obs_input.address >> 1;	// address to SAC is for 64-bit word
+     if ((obs_input.Type == 'A') || (obs_input.Type == 'B'))
+      {
+       tag = Name_Search(address);
+       sim_hold(1);
+       OLR.word0 = pow(10, tag);
+       OLR.word1 = 0;
+      }
+     else
+      {
+       tag = Vector_Search(address);
+     sim_hold(1);
+      OLR.word0 = 0;
+      OLR.word1 = pow(10, (tag - 8));
+      }
+     sim_hold(2);
+
+     if (tag < 0)					// no match
+     {
+      strcpy (Held_by, "NEQ");
+      my_state = OBS_IP_HELD;
+      dump_state();
+      if ((obs_input.Type == 'A') || (obs_input.Type == 'B'))	// name access
+       {
+	n_line = Line(OLP.word0);
+	OLR.word0 = pow(10, n_line);
+	altered = myOBS_OP->check_new_Nentry(n_line);
+	altered_line = n_line;
+       }
+      else
+       {
+	v_line = Line(OLP.word1);
+	OLR.word1 = pow(10, v_line);
+	altered = myOBS_OP->check_new_Ventry(v_line);
+//	altered_line = v_line;
+	altered_line = v_line + 8;
+       }
+      if (altered == 1)			// need to write back to Local Store
+       {
+	value_buffer = myOBS_OP->Value[altered_line];
+	sac_w_request.Type = 'W';
+	sac_w_request.tag = 0;
+	sac_w_request.address = Address[altered_line].Address;
+	sac_w_request.word0 = value_buffer.word0;
+	sac_w_request.word1 = value_buffer.word1;
+	send_WRITE_REQ(to_sac, sac_w_request);
+// reset Full bit in Value field
+	value_buffer.Full = 0;
+	myOBS_OP->Value.Update(altered_line, value_buffer);
+       }
+
+      sim_hold(2);
+// send request to SAC for new word
+      if ((obs_input.Type == 'A') || (obs_input.Type == 'B'))
+       {tag = new_Nentry(address);}
+      else
+       {tag = new_Ventry(address);}
+      sac_r_request.tag = tag;
+      sac_r_request.address = address;
+//      sac_r_request.Type = obs_input.Type;
+      sac_r_request.Type = 'V';
+      send_READ_REQ(to_sac, sac_r_request);
+     }							// end of tag < 0
+// check for AWE
+    if (((AW.word0 > 0) && (OLR.word0 == AW.word0))
+     || ((AW.word1 > 0) && (OLR.word1 == AW.word1)))
+     {
+      AW_wait = true;
+      strcpy (Held_by, "AWE");
+      my_state = OBS_IP_HELD;
+      OBS_done = true;		// i.e. done for now, instruction will be restarted
+     } // end of AWE check
+
+    else					// OK to pass instruction to Queue
+     {
+      Q_input.t = obs_input.t;
+      Q_input.f = obs_input.f;
+      Q_input.k = obs_input.k;
+      Q_input.tag = tag;
+      Q_input.d = obs_input.d;
+      Q_input.word0 = obs_input.word0;
+      Q_input.word1 = obs_input.word1;
+      Q_input.Type = obs_input.Type;
+      q_write = true;
+      if ((obs_input.t == ACC) && (obs_input.f == ST))
+       {AW = OLR;}
+     }
+    }			// end of ACC name request or data structure access
+
+/*
+   else if (STS_Instrn(FN) && ( (FN.Type == 'L') || (FN.Type == 'S')) )
+    {
+     address = obs_input.address >> 1;	// address to SAC is for 64-bit word
+       tag = Vector_Search(address);
+     sim_hold(1);
+      OLR.word0 = 0;
+      OLR.word1 = pow(10, (tag - 8));
+      Q_input.t = obs_input.t;
+      Q_input.f = obs_input.f;
+      Q_input.k = obs_input.k;
+      Q_input.tag = tag;
+      Q_input.d = obs_input.d;
+      Q_input.word0 = obs_input.word0;
+      Q_input.word1 = obs_input.word1;
+      Q_input.Type = obs_input.Type;
+      q_write = true;
+ 
+    }
+*/
+    dump_state();
+   }			// end of OBS done && !AW_wait
+  }	// end of OBS ready
+
+ if ((q_write) && (!myQUEUE->q_full))
+  {
+   send_Q_PKT(to_queue, Q_input);
+   q_write = false;
+   if (!purge)
+    {
+     OBS_done = true;
+     strcpy (Held_by, "---");
+     my_state = OBS_IP_IDLE;
+     dump_state();
+     sim_schedule(to_dr, 0.0, ACK_PKT, SIM_PUT(char, ack));
+    }
+  }
+ else if ((q_write) && (myQUEUE->q_full) && !purge)
+  {
+   my_state = OBS_IP_HELD;
+   strcpy (Held_by, "Qfl");
+   dump_state();
+   sim_hold(1);
+  }
+ else if (purge && myOBS_OP->purge)
+  {
+   for (i=0; i<16; i++)
+    {
+     altered = myOBS_OP->check_new_Nentry(i);	// ALTER
+     if (altered == 1)			// need to write back to Local Store
+      {
+       value_buffer = myOBS_OP->Value[i];
+       sac_w_request.Type = 'W';
+       sac_w_request.tag = 0;
+       sac_w_request.address = Address[i].Address;
+       sac_w_request.word0 = value_buffer.word0;
+       sac_w_request.word1 = value_buffer.word1;
+//       sim_hold(4);
+       sim_hold(8);
+       send_WRITE_REQ(to_sac, sac_w_request);
+// reset Altered bit in Value field
+       value_buffer.Altered = 0;
+       myOBS_OP->Value.Update(i, value_buffer);
+      }
+    }
+   myOBS_OP->purge_done = true;
+   purge = false;
+   OBS_done = true;
+   strcpy (Held_by, "---");
+   my_state = OBS_IP_IDLE;
+   dump_state();
+   sim_schedule(to_dr, 0.0, ACK_PKT, SIM_PUT(char, ack));
+  }				// end of purge && myOBS_OP->stop
+ else
+  {sim_hold(1);}		// otherwise time stands still
+}	// end of while loop
+
