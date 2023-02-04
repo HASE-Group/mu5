@@ -1,0 +1,226 @@
+// Project	MU5
+// Entity	SAC
+// File		sac.hase
+// Date		March 2013
+
+
+// SAC receives requests for 64-bit words from IBU, PROP and OBS
+
+$class_decls
+
+ prop * myPROP;
+ cprs * myCPRS;
+
+// structures and variables
+
+  bool read_req, write_req, i_wait, r_wait, w_wait;
+  char letter;
+  t_Dinstrn_pkt instrns, i_to_ibu;
+  t_r_request r_request, i_request;
+  t_w_request w_request;
+  t_LSr_request l_r_request, l_i_request;
+  t_LSw_request l_w_request;
+  t_mem_data_pkt mem_data;
+  int line, page, block;
+
+// classes
+
+$class_defs
+
+$body
+
+// predicate for use in sim_waiting test
+
+  sim_from_port ibu_req(from_ibu);
+  sim_from_port ns_req(from_ns);
+  sim_from_port obs_req(from_obs);
+  sim_from_port ls_ready(a_from_ls);
+  sim_from_port ls_instr(i_from_ls);
+  sim_from_port ls_data(d_from_ls);
+
+// set up  pointers to other entities
+
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myCPRS = (cprs*)sim.get_entity(sim.get_entity_id("CPRS"));
+
+  read_req = false;
+  write_req = false;
+  i_wait = false;
+  r_wait = false;
+  w_wait = false;
+
+while (!myPROP->Stop)
+{
+
+  if (sim_waiting(ls_ready) > 0)
+   {
+    sim_select (ls_ready, ev);
+    SIM_CAST_DEL(char,  letter, ev);
+
+    if (i_wait)
+     {
+      send_LS_I_FETCH(r_req_to_ls, l_i_request);
+      sim_hold(1);
+      my_state = SAC_IDLE;
+      i_wait = false;
+      dump_state();
+     }
+
+    if (r_wait)
+     {
+      send_LS_READ_REQ(r_req_to_ls, l_r_request);
+      sim_hold(1);
+      my_state = SAC_IDLE;
+      r_wait = false;
+      dump_state();
+     }
+
+    if (w_wait)
+     {
+      send_LS_WRITE_REQ(w_req_to_ls, l_w_request);
+      sim_hold(1);
+      my_state = SAC_IDLE;
+      w_wait = false;
+      dump_state();
+     }
+  }
+
+ if (my_state == SAC_IDLE)
+  {
+
+  if (sim_waiting(ibu_req) > 0)		// instruction request
+   {
+    sim_select(ibu_req, ev);
+    SIM_CAST_DEL(t_r_request, i_request, ev);
+    sim_hold(1);
+    my_state = SAC_BUSY;
+    dump_state();
+    sim_hold(1);
+    l_i_request.Type = i_request.Type;
+    l_i_request.tag = i_request.tag;
+    page = i_request.address >> 7;			// 1 page = 256 32-bit words = 128 64-bit words
+    l_i_request.block = myCPRS->Translate(page);
+    l_i_request.line = i_request.address & 127;
+
+    if (l_i_request.block > 31)				// CPR NEQ
+     {
+         l_i_request.block =  l_i_request.block & 31;
+	i_wait = true;
+	my_state  = SAC_HELD;
+	dump_state();
+     }
+    else
+      {
+       sim_hold(1);
+       send_LS_I_FETCH(r_req_to_ls, l_i_request);
+       sim_hold(1);
+       my_state = SAC_IDLE;
+       dump_state();
+      }
+        myCPRS->SetIdle();
+   }
+
+ else  if ( (sim_waiting(ns_req)) ||  (sim_waiting(obs_req)) )
+   {
+     if (sim_waiting(ns_req))
+      {sim_select(ns_req, ev);}
+
+    else if (sim_waiting(obs_req))
+      {sim_select(obs_req, ev);}
+
+       if (ev.type() == READ_REQ)
+     {
+      SIM_CAST_DEL(t_r_request, r_request, ev);
+      sim_hold(1);
+      my_state = SAC_BUSY;
+      dump_state();
+      sim_hold(1);
+      l_r_request.Type = r_request.Type;
+      l_r_request.tag = r_request.tag;
+      page = r_request.address >> 7;		// 1 page = 256 32-bit words = 128 64-bit words
+      l_r_request.block = myCPRS->Translate(page);
+      l_r_request.line = r_request.address & 127;
+
+     if (l_r_request.block > 31)				// CPR NEQ
+      {
+         l_r_request.block = l_r_request.block & 31;
+	r_wait = true;
+	my_state  = SAC_HELD;
+	dump_state();
+      }
+     else
+      {
+       sim_hold(4);
+       send_LS_READ_REQ(r_req_to_ls, l_r_request);
+       sim_hold(1);
+       my_state = SAC_IDLE;
+       dump_state();
+      }
+       myCPRS->SetIdle();
+     }
+
+    if (ev.type() == WRITE_REQ)
+     {
+      SIM_CAST(t_w_request, w_request, ev);
+      sim_hold(1);
+      my_state = SAC_BUSY;
+      dump_state();
+      sim_hold(1);
+      l_w_request.Type = w_request.Type;
+      l_w_request.tag = w_request.tag;
+      page = w_request.address >> 7; // 1 page = 256 32-bit words = 128 64-bit words
+      l_w_request.block = myCPRS->Translate(page);
+      l_w_request.line = w_request.address & 127;
+      l_w_request.word0 = w_request.word0;
+      l_w_request.word1 = w_request.word1;
+     if (l_w_request.block > 31)				// CPR NEQ
+      {
+         l_w_request.block = l_w_request.block & 31;
+	w_wait = true;
+	my_state  = SAC_HELD;
+	dump_state();
+      }
+     else
+      {
+       sim_hold(4);
+       send_LS_WRITE_REQ(w_req_to_ls, l_w_request);
+       sim_hold(1);
+       my_state = SAC_IDLE;
+       dump_state();
+      }
+       myCPRS->SetIdle();
+    }
+  }
+
+  else if (sim_waiting (ls_instr))	// double instruction from Local Store
+   {
+    sim_select (ls_instr, ev);
+   SIM_CAST_DEL (t_Dinstrn_pkt, instrns, ev);
+   my_state = SAC_BUSY;
+   dump_state();
+    i_to_ibu = instrns;
+   sim_hold(4);
+   send_D_INSTRN(to_ibu, i_to_ibu);
+   my_state = SAC_IDLE;
+   dump_state();
+  }
+
+ else if (sim_waiting (ls_data))
+  {
+    sim_select (ls_data, ev);
+   SIM_CAST_DEL (t_mem_data_pkt, mem_data, ev);
+   my_state = SAC_BUSY;
+   dump_state();
+   sim_hold(4);
+   if (mem_data.Type == 'N')
+    {send_MEM_DATA_PKT(to_ns, mem_data);}
+   else if ((mem_data.Type == 'V') || (mem_data.Type == 'A') || (mem_data.Type == 'B'))
+    {send_MEM_DATA_PKT(to_obs, mem_data);}
+   my_state = SAC_IDLE;
+   dump_state();
+  }
+ }			// end of !SAC Busy
+sim_hold(1);
+}			// end of while
+

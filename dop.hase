@@ -1,0 +1,413 @@
+// Project	MU5
+// Entity	Descriptor Operand Processing Unit
+// File		dop.hase
+// Start date		July 2013
+// Last update	March 2014
+
+
+$class_decls
+
+ prop * myPROP;
+ acc * myACC;
+
+// structures and variables
+
+ bool Dop_ready, sts_done;
+ bool ACC_ready, send_to_ACC, acc_st_waiting;
+ bool hway_ready, send_to_hway;
+ char ack;
+
+ int dopbits;
+ int MSBA;			// Most Significant Byte Address
+ int MSbA;			// Most Significant Bit Address
+ int LSBA;			// Least Significant Byte Address
+ int wMSBA, wMSbA, wLSBA; 	// MSBA, MSbA, LSBA for Acc Write Buffer
+ int byte3_mask, byte2_mask, byte1_mask, byte0_mask;
+
+int Time;
+
+ t_dop_pkt input_from_obs;
+ t_dop_hway output_to_hway;
+ t_au_instrn output_to_acc;
+ t_au_result input_from_acc;
+ t_au_result dop_output;
+ t_data64_pkt input_from_hway;
+ t_double_int shift_op, write_data;
+ t_dbl_reg0 mask_byte, ssa_ssb;    // these are the real ssa & ssb registers
+				// those declared in the edl file are for display only
+
+// classes
+
+void Clear_Fch();
+void Load_Fch();
+
+$class_defs
+
+void dop::Clear_Fch()
+{
+	FRc[3] = i_to_ch(45);
+	FRc[2] = i_to_ch(45);
+	FRc[1] = i_to_ch(45);
+	FRc[0] = i_to_ch(45);
+	FRc[7] = i_to_ch(45);
+	FRc[6] = i_to_ch(45);
+	FRc[5] = i_to_ch(45);
+	FRc[4] = i_to_ch(45);
+}
+void dop::Load_Fch()
+
+{
+	FRc[3] = i_to_ch(FR.word0 & 255);
+	FRc[2] = i_to_ch((FR.word0 >> 8) & 255);
+	FRc[1] = i_to_ch((FR.word0 >> 16) & 255);
+	FRc[0] = i_to_ch((FR.word0 >> 24) & 255);
+	FRc[7] = i_to_ch(FR.word1 & 255);
+	FRc[6] = i_to_ch((FR.word1 >> 8) & 255);
+	FRc[5] = i_to_ch((FR.word1 >> 16) & 255);
+	FRc[4] = i_to_ch((FR.word1 >> 24) & 255);
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myACC = (acc*)sim.get_entity(sim.get_entity_id("ACC"));
+
+// predicates
+
+ sim_from_port Instrn_In(from_obs);
+ sim_from_port Ack_In(from_acc);
+ sim_from_port Result_In(from_hway);
+
+// variables
+
+ Dop_ready = true;
+ sts_done = false;
+ ACC_ready = true;
+ acc_st_waiting = false;
+ send_to_ACC = false;
+
+ hway_ready = true;
+ send_to_hway = false;
+
+ ack = 'K';
+
+// byte masks
+
+ byte3_mask = -1 ^ 255;
+ byte2_mask = -1 ^ (255 << 8);
+ byte1_mask = -1 ^ (255 << 16);
+ byte0_mask = -1 ^ (255 << 24);
+
+while (!myPROP->Stop)
+{
+ if (sim_waiting(ev, Instrn_In) > 0)
+  {
+   SIM_CAST(t_dop_pkt, input_from_obs, ev);
+   if (Dop_ready)
+    {
+     sim_hold(1);
+     Dop_ready = false;
+     my_state = DOP_BUSY;
+     DopF.t = input_from_obs.t;
+     DopF.f = input_from_obs.f;
+     DopF.k = input_from_obs.k;
+     DopF.Type = input_from_obs.Type;
+     dopbits = input_from_obs.d;
+     if (dopbits < 1024)
+      {
+       MSBA = dopbits / 100;
+       dopbits = dopbits - (MSBA * 100);
+       MSbA = dopbits / 10;
+       LSBA = dopbits - (MSbA * 10);
+      }
+     FR.word0 = input_from_obs.word0;
+     FR.word1 = input_from_obs.word1;
+     sim_hold(3);
+     if ((DopF.Type != 'L') && (DopF.Type != 'S'))
+      {
+       shift_op.word0 = 0;
+       if ((MSBA == 0) && (LSBA == 7))		// 64-bit word
+        {
+	 shift_op.word0 = FR.word0;
+	 shift_op.word1 = FR.word1;
+        }
+       else if ((MSBA == 0) && (LSBA == 3))	// m.s. 32-bit word
+        {shift_op.word1 = FR.word0;}
+       else if ((MSBA == 4) && (LSBA == 7))	// l.s. 32-bit word
+        {shift_op.word1 = FR.word1;}
+       else if (MSBA == LSBA)			// 8-bit word
+	{
+	 if (MSBA == 0)
+	  {shift_op.word1 = (FR.word0 >> 24) & 255;}
+	 if (MSBA == 1)
+	  {shift_op.word1 = (FR.word0 >> 16) & 255;}
+	 if (MSBA == 2)
+	  {shift_op.word1 = (FR.word0 >> 8) & 255;}
+	 if (MSBA == 3)
+	  {shift_op.word1 = FR.word0 & 255;}
+	 if (MSBA == 4)
+	  {shift_op.word1 = (FR.word1 >> 24) & 255;}
+	 if (MSBA == 5)
+	  {shift_op.word1 = (FR.word1 >> 16) & 255;}
+	 if (MSBA == 6)
+	  {shift_op.word1 = (FR.word1 >> 8) & 255;}
+	 if (MSBA == 7)
+	  {shift_op.word1 = FR.word1 & 255;}
+       dump_state();
+	}
+//					need to add 16-bit, 4-bit and 1-bit
+      }
+    if (DopF.f == ST)
+     {
+      WR.d = input_from_obs.d;
+      WR.word0 = input_from_obs.word0;
+      WR.word1 = input_from_obs.word1;
+      if (DopF.t == ACC)
+       {acc_st_waiting = true;}
+     }
+   sim_hold(4);
+
+   if (DopF.t == ACC)
+    {
+     GR.word0 = shift_op.word0;
+     GR.word1 = shift_op.word1;
+     output_to_acc.f = DopF.f;
+     output_to_acc.operand = GR.word1;
+     output_to_acc.Type = DopF.Type;
+     send_to_ACC = true;
+    }
+   if (DopF.t == B)
+    {
+     GR.word0 = shift_op.word0;
+     GR.word1 = shift_op.word1;
+     output_to_hway.f = DopF.f;
+     output_to_hway.word0 = GR.word0;
+     output_to_hway.word1 = GR.word1;
+     output_to_hway.Type = DopF.Type;
+     if (DopF.Type != 'V')
+       {output_to_hway.dest = 0;}
+     else
+       {output_to_hway.dest = 2;}
+ 
+     send_to_hway = true;
+     }
+   if (DopF.f == D_ST || DopF.f == XD_ST)
+    {
+     GR.word0 = shift_op.word0;
+     GR.word1 = shift_op.word1;
+     output_to_hway.dest = 0;
+     output_to_hway.f = DopF.f;
+     output_to_hway.word0 = GR.word0;
+     output_to_hway.word1 = GR.word1;
+     output_to_hway.Type = 'W';
+     send_to_hway = true;
+     }
+
+   if (STS_Instrn(DopF))
+    {
+     if ((dopbits & 1024) == 1024)	// "pre" cycle, loads mask_byte
+      {
+       Clear_Fch();
+       mask_byte.word0 = (input_from_obs.word1 >> 8) & 255;
+       MASK_BYTE.word0 = mask_byte.word0;
+       mask_byte.word1 = input_from_obs.word1 & 255;
+       MASK_BYTE.word1[0] = i_to_ch(mask_byte.word1);
+       sim_hold(4);
+       sim_schedule(ack_to_obs, 0.0, ACK_PKT, SIM_PUT(char, ack));
+       sim_hold(1);
+       Dop_ready = true;
+       my_state = DOP_IDLE;
+       dump_state();
+      }
+
+     else		// normal cycle actions, may be read, write or compare
+      {
+       if (DopF.Type == 'L')	// load source byte into SSB
+	{
+         Load_Fch();
+	 if (MSBA == 0)
+	  {ssa_ssb.word1 = (FR.word0 >> 24) & 255;}
+	 if (MSBA == 1)
+	  {ssa_ssb.word1 = (FR.word0 >> 16) & 255;}
+	 if (MSBA == 2)
+	  {ssa_ssb.word1 = (FR.word0 >> 8) & 255;}
+	 if (MSBA == 3)
+	  {ssa_ssb.word1 = FR.word0 & 255;}
+	 if (MSBA == 4)
+	  {ssa_ssb.word1 = (FR.word1 >> 24) & 255;}
+	 if (MSBA == 5)
+	  {ssa_ssb.word1 = (FR.word1 >> 16) & 255;}
+	 if (MSBA == 6)
+	  {ssa_ssb.word1 = (FR.word1 >> 8) & 255;}
+	 if (MSBA == 7)
+	  {ssa_ssb.word1 = FR.word1 & 255;}
+         SSA_SSB.word1[0] = i_to_ch(ssa_ssb.word1);
+         sim_hold(4);
+         sim_schedule(ack_to_obs, 0.0, ACK_PKT, SIM_PUT(char, ack));
+         sim_hold(1);
+         Dop_ready = true;
+         my_state = DOP_IDLE;
+         dump_state();
+	}			// end of read cycle
+
+       if (DopF.Type == 'S')	// write SSB to destination byte
+	{
+	 if ((DopF.f == BMVB) || (DopF.f == BMVE))	// source byte is Filler
+	  {
+           ssa_ssb.word1 = mask_byte.word1;
+           SSA_SSB.word1[0] = MASK_BYTE.word1[0];
+          }
+       Load_Fch();
+       sim_hold(1);
+       dump_state();
+// update byte of FR selected by MSBA
+	 if (MSBA == 0)
+	  {FR.word0 = (FR.word0 & byte0_mask) | (ssa_ssb.word1 << 24);}
+	 if (MSBA == 1)
+	  {FR.word0 = (FR.word0 & byte1_mask) | (ssa_ssb.word1 << 16);}
+	 if (MSBA == 2)
+	  {FR.word0 = (FR.word0 & byte2_mask) | (ssa_ssb.word1 << 8);}
+	 if (MSBA == 3)
+	  {FR.word0 = (FR.word0 & byte3_mask) | ssa_ssb.word1;}
+	 if (MSBA == 4)
+	  {FR.word1 = (FR.word1 & byte0_mask) | (ssa_ssb.word1 << 24);}
+	 if (MSBA == 5)
+	  {FR.word1 = (FR.word1 & byte1_mask) | (ssa_ssb.word1 << 16);}
+	 if (MSBA == 6)
+	  {FR.word1 = (FR.word1 & byte2_mask) | (ssa_ssb.word1 << 8);}
+	 if (MSBA == 7)
+	  {FR.word1 = (FR.word1 & byte3_mask) | ssa_ssb.word1;}
+         Load_Fch();
+         write_data.word0 = FR.word0;
+         write_data.word1 = FR.word1;
+         sim_hold(4);
+         send_D_INT(to_obs, write_data);
+         sim_hold(1);
+         Dop_ready = true;
+         my_state = DOP_IDLE;
+         dump_state();
+	}			// end of write cycle
+
+       if (DopF.Type == 'C')	// load destination byte into SSA and compare SSA & SSB
+	{
+	 Load_Fch();
+	 if (DopF.f == BSCN || DopF.f == BCMP)
+	  {
+	   ssa_ssb.word1 = mask_byte.word1;		// SSB = Filler byte
+           SSA_SSB.word1[0] = MASK_BYTE.word1[0];
+	  }
+	 if (MSBA == 0)
+	  {ssa_ssb.word0 = (FR.word0 >> 24) & 255;}	// SSA = destination byte
+	 if (MSBA == 1)
+	  {ssa_ssb.word0 = (FR.word0 >> 16) & 255;}
+	 if (MSBA == 2)
+	  {ssa_ssb.word0 = (FR.word0 >> 8) & 255;}
+	 if (MSBA == 3)
+	  {ssa_ssb.word0 = FR.word0 & 255;}
+	 if (MSBA == 4)
+	  {ssa_ssb.word0 = (FR.word1 >> 24) & 255;}
+	 if (MSBA == 5)
+	  {ssa_ssb.word0 = (FR.word1 >> 16) & 255;}
+	 if (MSBA == 6)
+	  {ssa_ssb.word0 = (FR.word1 >> 8) & 255;}
+	 if (MSBA == 7)
+	  {ssa_ssb.word0 = FR.word1 & 255;}
+         SSA_SSB.word0[0] = i_to_ch(ssa_ssb.word0);
+
+	 dop_output.operand = 0;			// result = /0 +ve
+// if source byte (SSB) < destination byte (SSA), SSB - SSA = -ve
+	 if (ssa_ssb.word0 - ssa_ssb.word1 < 0)
+	  {dop_output.operand = 2;}			// result = -ve
+	 if (ssa_ssb.word0 - ssa_ssb.word1 == 0)
+	  {dop_output.operand = 1;}			// result = 0
+	 dop_output.Type = 'C';
+	 sim_hold(4);
+	 send_RESULT_PKT(to_dr, dop_output);
+         sim_schedule(ack_to_obs, 0.0, ACK_PKT, SIM_PUT(char, ack));
+         sim_hold(1);
+         Dop_ready = true;
+         my_state = DOP_IDLE;
+         dump_state();
+	}			// end of compare cycle
+      }				// end of normal cycle actions
+     }		// end of STS_Instrn
+    }		// end of Dop ready
+ }		// end of Instrn_In
+
+  if (sim_waiting(ev, Ack_In) > 0)
+  {
+   SIM_CAST(t_au_result, input_from_acc, ev);
+
+   if (input_from_acc.Type == 'K')
+    {
+     sim_hold(1);
+     ACC_ready = true;
+    }
+  }
+
+  if (sim_waiting(ev, Result_In) > 0)
+  {
+   SIM_CAST(t_data64_pkt, input_from_hway, ev);
+   sim_hold(1);
+   if ((acc_st_waiting) && (input_from_hway.Type == 'W'))	// just W???
+    {
+     acc_st_waiting = false;
+     sim_hold(1);
+     wLSBA = WR.d & 7;
+     wMSbA = (WR.d / 10) & 7;
+     wMSBA = WR.d / 100;
+
+// The following code deals with 32-bit writes only; the m.s. or l.s. half is selected
+// based on the m.s. bit of the the LSBA Dop bits, which will have been set to 0 or 7.
+// If the incoming 32-bit value is being written to a 64-bit word (stacking operation)
+// MSBA will be 0 and LSBA will be 7. In this case, the m.s. word is set to 0.
+
+    if ((wMSBA == 0) && (wLSBA == 7))
+     {
+      WR.word0 = input_from_hway.word0;
+      WR.word1 = input_from_hway.word1;
+     }
+    else if ((wMSBA == 0) && (wLSBA == 3))
+     {WR.word0 = input_from_hway.word1;}
+    else if ((wMSBA == 4) && (wLSBA == 7))
+     {WR.word1 = input_from_hway.word1;}
+
+     write_data.word0 = WR.word0;
+     write_data.word1 = WR.word1;
+     send_D_INT(to_obs, write_data);
+    }
+   else if (input_from_hway.Type == 'K')
+    {
+     sim_hold(1);
+     hway_ready = true;
+    }
+  }			// end of Result_In
+
+  if ((send_to_ACC) && (ACC_ready))
+    {
+     send_AU_PKT(to_acc, output_to_acc);
+     send_to_ACC = false;
+     ACC_ready = false;
+     sim_schedule(ack_to_obs, 0.0, ACK_PKT, SIM_PUT(char, ack));
+     Dop_ready = true;
+     my_state = DOP_IDLE;
+     dump_state();
+    }
+
+  if ((send_to_hway) && (hway_ready))
+    {
+     send_DOP_H_PKT(to_hway, output_to_hway);
+     send_to_hway = false;
+     hway_ready = false;
+     sim_schedule(ack_to_obs, 0.0, ACK_PKT, SIM_PUT(char, ack));
+     Dop_ready = true;
+     my_state = DOP_IDLE;
+     dump_state();
+    }
+   else
+    {sim_hold(1);}		// otherwise time stands still
+ }			  // end of while loop
+
+

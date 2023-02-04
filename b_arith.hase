@@ -1,0 +1,194 @@
+// Project:	MU5
+// Entity	B Arithmetic Unit
+// File:	b_arith.hase
+// Date:	Apr 2013
+
+
+/*
+B functions are
+
+LD	B = operand
+LDD	B = operand - 1
+SLD	Stack B, B = operand
+ST	operand = B
+ADD	B = B + operand
+SUB	B = B - operand
+MUL	B = B * operand
+DIV	B = B / operand
+XOR	B = B XOR operand
+OR	B = B OR operand
+SHL	B Shift Left by operand
+AND	B = B & operand
+RSUB	B = operand - B
+COMP	Set Compare bits according to (B - operand)
+CINC	Set Compare bits according to (B - operand) and decrement B
+RDIV	B = operand / B
+*/
+
+$class_decls
+
+//structures and variables
+
+ bool B_done, B_ready;
+ int input_operand, B_result;
+ int Time;
+ t_au_instrn b_input;
+ t_au_result b_output;
+
+// classes
+ 
+
+//entity references
+  prop * myPROP;
+
+$body
+
+  myPROP = (prop*) sim.get_entity( sim.get_entity_id("PROP"));
+
+  B_done = true;
+  B_ready = true;
+  my_state = B_IDLE;
+  dump_state();
+
+while(!myPROP->Stop)
+{
+ sim_get_next(ev);
+  if  (ev.from_port(from_hway))	// instruction from Central Highway
+   {
+    SIM_CAST(t_au_instrn, b_input, ev);
+    sim_hold(1);
+    INSTRN.f = b_input.f;
+    INSTRN.operand = b_input.operand;
+    if (INSTRN.f == ST)
+     {INSTRN.operand = 0;}
+    INSTRN.Type = b_input.Type;
+    my_state = B_BUSY;
+    dump_state();
+    if (B_done)
+     {
+	B_ready = true;
+	B_done = false;
+	b_output.Type = 'K';
+	sim_schedule(c_to_hway, 0.0, RESULT_PKT, SIM_PUT(t_au_result, b_output));
+     }
+   
+   
+  if (b_input.Type == 'M')
+   {
+    b_output.operand = B;
+    b_output.Type = 'M';
+    send_RESULT_PKT(to_dr, b_output);
+    sim_hold(1);
+    B_done = true;
+   }
+  else
+   {
+   if ( (b_input.f == LD) || (b_input.f == SLD) )
+    {
+	B = b_input.operand;
+	sim_hold(4);
+      }
+   else if (b_input.f == ST)
+    {
+	b_output.operand = B;
+	b_output.Type = 'W';
+	sim_hold(4);
+	send_RESULT_PKT(d_to_hway, b_output);
+			// NEED TO BE ABLE TO SEND TO Dop as well as PROP - Type?
+      }
+
+   else if (b_input.f == ADD)
+    {
+	B = B + b_input.operand;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == SUB)
+    {
+	B = B - b_input.operand;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == MUL)
+    {
+	B = B * b_input.operand;
+	sim_hold(6);
+    }
+
+   else if (b_input.f == DIV)
+    {
+//	B = B / b_input.operand;				Dummy order: No B DIV in MU5
+	sim_hold(10);
+    }
+
+   else if (b_input.f == XOR)
+    {
+	B = B ^ b_input.operand;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == OR)
+    {
+	B = B | b_input.operand;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == SHL)
+    {
+	B = B << b_input.operand;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == AND)
+    {
+	B = B & b_input.operand;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == RSUB)
+    {
+	B = b_input.operand - B;
+	sim_hold(4);
+    }
+
+   else if (b_input.f == RDIV)
+    {
+//	B = b_input.operand / B;			Dummy order: No B RDIV in MU5
+	sim_hold(10);
+    }
+
+   else if (b_input.f == COMP)
+    {
+	B_result = B - b_input.operand;
+       b_output.operand = 0;
+	  if (B_result < 0)
+	   {b_output.operand = 2;}
+	  if (B_result == 0)
+	   {b_output.operand = 1;}
+	b_output.Type = 'C';
+	sim_hold(4);
+	send_RESULT_PKT(d_to_hway, b_output);
+    }
+
+   else if (b_input.f == CINC)
+    {
+	B_result = B - b_input.operand;
+       b_output.operand = 0;
+	  if (B_result < 0)
+	   {b_output.operand = 2;}
+	  if (B_result == 0)
+	   {b_output.operand = 1;}
+	b_output.Type = 'C';
+	B ++;
+	sim_hold(4);
+	send_RESULT_PKT(d_to_hway, b_output);
+    }
+
+   B_done = true;
+  }	// end of else - not M Type
+
+	my_state = B_IDLE;
+	dump_state();
+   }				// end of event from highway
+    
+}				// end of while loop

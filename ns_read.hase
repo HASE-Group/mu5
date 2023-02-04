@@ -1,0 +1,464 @@
+// Project	MU5
+// Entity	NS_READ
+// File		ns_read.hase
+// Start date	June 2013
+// Last update	March 2014
+
+$class_decls
+
+  prop * myPROP;
+  decode * myDecode;
+  assoc * myAssoc;
+  assemble * myAssemble;
+  execute * myExecute;
+
+// structures and variables
+
+ bool Read_ready, Restart;
+ bool match, NSready, BWequiv, BW2, STACK_pending;
+ bool data_from_obs, data_from_sac;
+ char source;
+ int clock, line, new_line, temp1, temp2, i, j;
+ int Time;
+ t_fn_reg F3out;
+ t_w_request sac_buffer;
+ t_mem_data_pkt mem_data;
+ t_double_int buffer, w_buffer, VUinput;
+
+// classes
+
+void Write_Back(int wbline);
+void B_Write();
+void D_Write();
+void STACK_Write();
+void Base_Write();
+
+$class_defs
+
+
+void ns_read::Write_Back(int wbline)	// invoked by NSNE or AWE finding altered line
+{
+ sac_buffer.Type = 'W';
+ sac_buffer.address = myAssoc->Address[wbline].Address;
+ sac_buffer.word0 = Value_Field[wbline].word0;
+ sac_buffer.word1 = Value_Field[wbline].word1;
+ send_WRITE_REQ(to_sac, sac_buffer);
+ myAssoc->Reset_LA(wbline);
+}
+
+void ns_read::B_Write()			// invoked by EXECUTE
+{
+ w_buffer = Value_Field[Line(BW.line)];
+ if (BW.half == 2)				// 64-bit write
+  {
+   w_buffer.word0 = 0;
+   w_buffer.word1 = myAssemble->VU.word1; 
+  }
+ else					// 32-bit write
+  {
+   if (BW.half == 0)
+    {w_buffer.word0 = myAssemble->VU.word1;}
+   else
+    {w_buffer.word1 = myAssemble->VU.word1;}
+  }
+ Value_Field.Update(Line(BW.line), w_buffer);
+
+ myAssoc->BW_Set_LA();			// sets Altered bit
+ BW.line = 0;				// clears BW line bits
+ dump_state();
+ if (BWequiv)	// reset BW equivalence 
+  {
+   F3out.Type = F3.Type;
+   BWequiv = false;
+   strcpy(Held_by, "---");
+   dump_state();
+   if (LR > 0)
+    {myPROP->F3freeF3 = true;}
+  }
+ if (BW2)
+  {
+   BW2 = false;
+   Restart = true;
+   strcpy(Held_by, "---");
+   dump_state();
+  }
+}
+
+void ns_read::STACK_Write()	// called from EXECUTE when operand to be stacked is
+				// received from Hway. Usually a Stack will cause an
+				// NSNE, so NSready will not be set and Stack_pending
+				// is set. STACK_Write is called again when the NSNE
+				// store word is received from SAC. This time it writes.
+{
+ if (NSready)
+  {
+    w_buffer.word0 = myExecute->HO.word0;
+    w_buffer.word1 = myExecute->HO.word1;
+
+    Value_Field.Update(Line(LR), w_buffer);
+    myAssoc->Set_LA();
+    F3out.Type = F3.Type;
+    myPROP->F3freeF3 = true;
+    strcpy (Held_by, "---");
+  }
+ else
+  {STACK_pending = true;}
+}
+
+void ns_read::Base_Write()
+{
+// these orders went passed LR earlier - an neq would have been fixed then
+    w_buffer = Value_Field[Line(LR)];
+    if (F3.k == V64)
+     {
+      w_buffer.word0 = 0;
+      w_buffer.word1 = myAssemble->VU.word1; 
+     }
+    else if (F3.k == V32)
+    if (F3.k == V32)
+     {
+      if ((A3 & 1) == 0)
+       {w_buffer.word0 = myAssemble->VU.word1;}
+      else
+       {w_buffer.word1 = myAssemble->VU.word1;}
+     }
+    Value_Field.Update(Line(LR), w_buffer);
+    myAssoc->Set_LA();
+    myPROP->DFfreeDF = true;	// hold-up was set by Decode
+}
+
+void ns_read::D_Write()	// called from EXECUTE when it receives D or XD value
+{
+    w_buffer.word0 = myExecute->HO.word0;
+    w_buffer.word1 = myExecute->HO.word1;
+    Value_Field.Update(Line(LR), w_buffer);
+    myAssoc->Set_LA();
+    if (F3.Type == 'V')		// may be D (in case of SLD instruction)
+     {myExecute->CO++;}
+    F3.Type = 'I';		// instruction has been executed and CO incremented
+    F3out.Type = 'I';
+    myPROP->F3freeF3 = true;
+    strcpy (Held_by, "---");
+    dump_state();
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myDecode = (decode*)sim.get_entity(sim.get_entity_id("DECODE"));
+  myAssoc = (assoc*)sim.get_entity(sim.get_entity_id("ASSOCIATE"));
+  myAssemble = (assemble*)sim.get_entity(sim.get_entity_id("ASSEMBLE"));
+  myExecute = (execute*)sim.get_entity(sim.get_entity_id("EXECUTE"));
+
+// predicates
+
+ sim_from_port Clock_In(clock_in);
+ sim_from_port SAC_In(from_sac);
+
+// initialise variables
+
+  data_from_obs = false;
+  data_from_sac = false;
+  Read_ready = false;
+  Restart = false;
+  NSready = false;
+  BWequiv = false;
+  BW2 = false;
+  STACK_pending = false;
+  F3out = F3;
+  source = '-';
+
+while (!myPROP->Stop)
+{
+ if (sim_waiting(ev, Clock_In) > 0)
+  {
+   SIM_CAST(int, clock, ev);
+   if (clock < 0)			// invalidate
+    {
+     F3.Type = 'I';
+     F3out.Type = 'I';
+     my_state = READ_IDLE;
+     dump_state();
+    }
+   else					// normal clock action
+    {
+    if (myPROP->F3heldbyF3)
+     {
+      my_state = READ_HELD;
+      F3out.Type = 'I';
+
+      if (NSready)			// set when NSNEQ store word is received from SAC
+       {
+        NSready = false;
+	Read_ready = true;
+	if ( !(F3.f == D_ST) && !(F3.f == XD_ST)) // D_ST/XD_ST will cause another hold
+        {
+         myPROP->F3freeF3 = true;	// next clock will bring in a new instruction
+         F3out.Type = F3.Type;
+        }
+       }
+      if (Restart)	// i.e. use current instruction, set when BW2 hold-up is freed
+       {Read_ready = true;}
+     }
+   else					// not held, copy next instruction from Associate
+    {
+     F3 = myAssoc->F2;
+     F3out = F3;
+     if (F3.Type == 'I')	
+      {
+       my_state = READ_IDLE;
+       dump_state();
+      }
+     else				// Valid instruction
+      {
+       LR = myAssoc->LRinput;
+       A3 = myAssoc->IN;
+       if ( UpdateSF(F3))
+        {S3 = myAssoc->IN;}		// if (un)stacking operation
+       Read_ready = true;
+      }
+    }					// end of not held
+
+ if (Read_ready)
+  {
+   my_state = READ_BUSY;
+   F3out = F3;
+   if (F3.f == XNB_ST)
+    {
+     VUinput.word0 = 0;
+     VUinput.word1 = myDecode->RXNB;
+    }
+   if (F3.f == NB_ST)
+    {
+     VUinput.word0 = 0;
+     VUinput.word1 = myDecode->RNB;
+    }
+   if (F3.f == SF_ST)
+    {
+     VUinput.word0 = 0;
+     VUinput.word1 = myDecode->RSF;
+    }
+   if (NS_access(F3))
+    {
+     if ( (BW.line > 0)
+       && (B_Store(F3) || ((F3.f == STACK) && (F3.Type == 'D')))
+        )	//  second Store, 
+      {
+       BW2 = true;
+       myPROP->F3holdF3 = true;
+       my_state = READ_HELD;
+       F3out.Type = 'I';
+       strcpy (Held_by, "BW2");	    
+      }
+     if (!BW2)
+      {
+
+// NAME STORE EQUIVALANCE
+
+       if (LR > 0)
+        {
+         if (LR == BW.line)			// BW equivalence 
+	  {
+	   BWequiv = true;
+	   myPROP->F3holdF3 = true;
+	   my_state = READ_HELD;
+	   F3out.Type = 'I';
+	   strcpy (Held_by, "BWE");
+	  }
+	 else
+	  {
+	   buffer = Value_Field[Line(LR)];
+	   if (B_Store(F3))
+	    {
+	     BW.line = LR;
+	     if ( (F3.k == V64) || (F3.Type == 'D') )
+	      {BW.half = 2;}
+	     else
+	      {BW.half = A3 & 1;}
+	    }
+	  }		// end of !BWeqiv
+
+	if ((F3.t == ACC) && (F3.f == ST))	// ACC STORE Equivalence
+	 {
+	  myPROP->F3holdF3 = true;
+	  my_state = READ_HELD;
+	  strcpy (Held_by, "AWE");
+	  dump_state();
+	  sim_hold(1);
+// write back if altered
+	  if (myAssoc->Address[Line(LR)].Altered == 1)
+	   {Write_Back(Line(LR));}
+// reset valid
+	  myAssoc->Reset_Valid();	  
+	  sim_hold(3);
+	  myPROP->F3freeF3 = true;
+	  strcpy (Held_by, "---");
+	  my_state = READ_BUSY;
+
+	  F3out.Type = 'A';
+	  if (F3.Type == 'D')
+	   {F3out.Type = 'B';}	  
+	 }				// end of ACC ST Equivalence
+
+// D_ST & XD_ST: hold up F3 and send a D-Type order to Dr that doesn't increment CO but
+// causes Dr to send DR or XDR value to OBS, via Bypass to Dop, Highway and back to PROP. 
+
+	if ((F3.f == D_ST || F3.f == XD_ST) && (F3out.Type != 'D'))
+	 {
+	  myPROP->F3holdF3 = true;
+          F3out.Type = 'D';
+	  buffer.word0 = 0;
+	  buffer.word1 = 0;
+	  my_state = READ_HELD;
+	  strcpy (Held_by, "STO");
+	  dump_state();
+	 }
+
+	if ((F3.f == STACK) && (F3.Type == 'V')) // STACK 2nd phase wait for operand
+	 {
+	  myPROP->F3holdF3 = true;
+	  my_state = READ_HELD;
+	  F3out.Type = 'I';
+	 strcpy (Held_by, "STK");
+	 }
+	if (Restart)
+	 {myPROP->F3freeF3 = true;}
+       }			// end of NS equivalence
+
+// NAME STORE NON-EQUIVALANCE
+
+      else    	 // LR = 0, NS non-equivalence
+   	{
+ 	if ( (F3.t != ACC) || (F3.k == SB) || (F3.k == S0) )
+	 {
+	  if (BW2)
+	   {BW2 = false;}
+	  else		// deal with NSNE
+	   {
+
+// create NSNE packet to DR/OBS/SAC/LS. OBS checks its Name Store and sets "source"
+// in NS_READ to S (SAC) or O (OBS). Then ASSOCIATE is asked to find s new line.
+// SAC/OBS sends required word to READ which updates Assoc Field and Value Field
+// unless the data is from OBS and it's not a store order. Then resets F3Held
+
+	  myPROP->F3holdF3 = true;
+	  source = '-';
+	  strcpy (Held_by, "NEQ");
+	  my_state = READ_HELD;
+	  dump_state();
+	  NSready = false;
+	  if ((F3.f == STACK) && (F3.Type == 'V')) // STACK 2nd phase wait for operand
+	  {STACK_pending = true;}			// and NSNE to be fixed
+	  F3out.Type = 'N';
+          }
+	 }
+
+	else		// ACC order, operand should be in OBS Name Store
+	 {
+	  F3out.Type = 'A';
+         if (F3.Type == 'D')
+	  {F3out.Type = 'B';}
+	 }
+	}				// end of LR = 0
+      }					// end of !BW2
+    }				// end of NS_access
+
+   if (F3.f == STOP)
+    {
+     myPROP->F3holdF3 = true;
+     strcpy (Held_by, "NEQ");
+     my_state = READ_HELD;
+     dump_state();
+     for (i=0; i<8; i++)
+      {
+       if (myAssoc->Address[i].Altered == 1)
+	{Write_Back(i);}
+      }
+     myPROP->F3freeF3 = true;
+     Restart = true;
+     strcpy(Held_by, "---");
+     dump_state();
+    }
+
+   if (F3.Type == 'I')
+    {my_state = READ_IDLE;}
+    dump_state();
+    Restart = false;
+    Read_ready = false;
+    }		// end of Read_ready
+   }		// end of normal clock action
+  }   		// end of clock event
+
+// When an N Type packet reaches OBS_IP, OBS_IP sets "source" to S (SAC) or O (OBS)
+// An NEQ requires a new line if the data is coming from SAC or if it's a non-ACC
+// store order (PROP_Store), regardless of whether the data is from SAC or OBS
+// If the data is coming from OBS and it's not a store order, no new line is needed.
+
+ if (source != '-')
+  {
+   if ((source == 'S') || PROP_Store(F3))
+    {			// If it's a PROP store order the source is immaterial
+     new_line = myAssoc->find_new_line();
+     LR = pow(10, new_line);
+     if (myAssoc->write_back)
+      {
+       myAssoc->write_back = false;
+       Write_Back(new_line);
+      }
+     dump_state();
+     sim_hold(3);
+    }
+   source = '-';
+   }				// end of source != '-'
+
+ if (sim_waiting(ev, SAC_In) > 0)  {
+Time = sim_clock();
+//printf("Time = %d NS READ getting data from SAC\n", Time);
+   SIM_CAST(t_mem_data_pkt, mem_data, ev);
+   sim_hold(1);
+   my_state = READ_BUSY;
+   buffer.word0 = mem_data.word0;
+   buffer.word1 = mem_data.word1;
+   myAssoc->write_new_va = true;		// write address to NS Address Field
+   Value_Field.Update(new_line, buffer);	// write data to NS Value Field
+   sim_hold(3);
+   NSready = true;
+   if (STACK_pending)
+    {
+     sim_hold(1);
+     STACK_pending = false;
+     STACK_Write();
+    }
+   strcpy(Held_by, "---");
+   dump_state();
+   send_CLOCK(prop_ack, clock);
+  }	     			     // end of event from SAC
+
+ if (data_from_obs) 
+  {
+   data_from_obs = false;
+   if (PROP_Store(F3))  
+      {
+       buffer.word0 = myExecute->HO.word0;
+       buffer.word1 = myExecute->HO.word1;
+       myAssoc->write_new_va = true;		// write address to NS Address Field
+       Value_Field.Update(new_line, buffer);
+      }
+   else
+    {
+     VUinput.word0 = myExecute->HO.word0;
+     VUinput.word1 = myExecute->HO.word1;
+     myPROP->F3freeF3 = true;
+     F3out.Type = 'U';
+    }
+   strcpy(Held_by, "---");
+   sim_hold(4);
+   NSready = true;
+     send_CLOCK(prop_ack, clock);
+   }			// end of data from OBS
+
+ else
+  {sim_hold(1);}			// otherwise time stands still
+}		// end of while

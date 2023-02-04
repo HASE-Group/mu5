@@ -1,0 +1,252 @@
+// Project	MU5
+// Entity	DECODE
+// File		decode.hase
+// Start date		March 2013
+// Last update	March 2014
+
+$class_decls
+
+  ibu_df * myIBU_DF;
+  prop * myPROP;
+  execute * myExecute;
+
+// structures and variables
+
+ bool SLDpt1, STKpt2, i_error, not_imp;
+ int clock, operand, name, base;
+ int Time;
+
+ t_fn_reg DFout;
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myIBU_DF = (ibu_df*)sim.get_entity(sim.get_entity_id("IBU_DF"));
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myExecute = (execute*)sim.get_entity(sim.get_entity_id("EXECUTE"));
+
+// predicates
+
+// variables
+
+  SLDpt1 = false;
+  STKpt2 = false;
+  i_error = false;
+  not_imp = false;
+  DFout = DF;
+  name = 0;
+  base = 0;
+
+while (!myPROP->Stop)
+{
+ sim_get_next(ev);
+
+ if (ev.from_port(clock_in))
+  {
+   SIM_CAST(int, clock, ev);
+   if (clock < 0)		//  set invalid
+    {
+     DF.Type = 'I';
+     DFout.Type = 'I';
+     if (myExecute->S6.word1 == 1)
+      {
+       RSF = myExecute->S6.word0;
+       myExecute->S6.word1 = 0;
+      }
+      send_CLOCK(ibu_clock, clock);	// clear buffers
+     my_state = DECODE_IDLE;
+     dump_state();
+    }
+
+   else		// normal clock actions - may be held up by F3
+    {
+     if (myPROP->DFheldbyDF || myPROP->DFheldbyF3)
+      {
+       my_state = DECODE_HELD;
+       dump_state();
+
+// non-overlapped orders - held until completed
+
+       if ((Base_Load(DF) || Base_Store(DF) || (DF.f == STOP))
+	 && myPROP->DFheldbyDF && !myPROP->DFheldbyF3)
+        {DFout.Type = 'I';}		  // invalid instruction to F1
+
+// double orders - held for one beat
+
+       if ((DF.f == SLD || DF.f == D_SLD) && myPROP->DFheldbyDF && !myPROP->DFheldbyF3)
+        {
+         DFout.Type = 'V';		  // 2nd half of SLD instruction to F1
+	  DFout.f = DF.f;
+	 DFout.k = DF.k;
+	 if ((DF.k == V32) || (DF.k == V64) || (DF.k == SB) || (DF.k == S0))
+ 	  {
+ 	  if (DF.k == V32)
+ 	   {name = DF.n;}
+ 	  if ((DF.k == V64)  || (DF.k == SB) || (DF.k == S0))
+ 	   {name = DF.n << 1;}
+ 	  if (DF.b == Z || DF.b == D)
+ 	   {base = 0;}
+ 	  if (DF.b == XNB)
+ 	   {base = RXNB;}
+ 	  if (DF.b == SF)
+ 	   {base = RSF;}
+ 	  if (DF.b == NB)
+ 	   {base = RNB;}
+	 }
+         myPROP->DFfreeDF = true;
+	 SLDpt1 = false;
+        }
+
+       if (((DF.f == STACK) || (DF.k == stack))
+	  && myPROP->DFheldbyDF && !myPROP->DFheldbyF3)
+        {
+	 STKpt2 = true;		// 2nd half of STACK instruction or stack operand to F1
+         DFout.Type = 'V';
+	 name = 2;
+	 base = RSF;
+        myPROP->DFfreeDF = true;
+        }
+      }				// end of actions while held
+
+     else	   	       	 	       	    // !DFheld, get instruction
+      {
+       my_state = DECODE_IDLE;
+       send_CLOCK(ibu_clock, clock);	// request for next instruction
+       DF.t = myIBU_DF->i_to_prop.t;
+       DF.f = myIBU_DF->i_to_prop.f;
+       DF.k = myIBU_DF->i_to_prop.k;
+       DF.b = myIBU_DF->i_to_prop.b;
+       DF.n = myIBU_DF->i_to_prop.n;
+       DF.Type  = myIBU_DF->i_to_prop.Type;
+       DFout = DF;
+       STKpt2 = false;
+       if (DF.Type == 'I')  
+        {my_state = DECODE_IDLE;}
+       else				// valid instruction
+        {
+  	 my_state = DECODE_BUSY;
+         if (is_an_instrn(DF))
+         {
+
+       if ((DF.t == B) && (DF.f == ST) && (DF.k == SB))
+        {
+	 not_imp = true;
+         myPROP->Stop = true;
+	}
+       if ((DF.f == SLD || DF.f == D_SLD) && !myPROP->DFheldbyDF) // SLD  1st part
+	{
+ 	 SLDpt1 = true;
+ 	 myPROP->DFholdDF = true;
+ 	 DFout.Type = 'D';
+	 if (DF.f == SLD)
+	  {DFout.f = ST;}
+	 if (DF.f == D_SLD)
+	  {DFout.f = D_ST;}
+	 DFout.k = V64;
+ 	 name = 2;
+ 	 base = RSF;
+ 	}
+ 	  if ((DF.f == STACK) && !myPROP->DFheldbyDF) // STACK  1st part
+ 	   {
+ 	    myPROP->DFholdDF = true;
+ 	    DFout.Type = 'D';
+   	   }
+
+ 	if ((DF.k == stack) && !myPROP->DFheldbyDF) // Operand from Stack 1st part
+ 	 {
+ 	  myPROP->DFholdDF = true;
+ 	  DFout.Type = 'D';
+ 	  name = -2;
+ 	  base = RSF;
+ 	 }
+
+ 	 if (Base_Load(DF) || Base_Store(DF) || (DF.f == STOP))
+ 	  {
+ 	   myPROP->DFholdDF = true;
+ 	   my_state = DECODE_HELD;
+ 	   dump_state();
+ 	  }		// end of if Base_Load (until operand returns) or Base_Store
+
+ 	 if ( ((DF.k == V32) || (DF.k == V64) || (DF.k == SB) || (DF.k == S0))
+	      && !SLDpt1 && !STKpt2)
+ 	  {
+ 	  if (DF.k == V32)
+ 	   {name = DF.n;}
+ 	  if ((DF.k == V64) || (DF.k == SB) || (DF.k == S0))
+ 	   {name = DF.n << 1;}
+ 	  if (DF.b == Z)
+ 	   {base = 0;}
+ 	  if (DF.b == XNB)
+ 	   {base = RXNB;}
+ 	  if (DF.b == SF)
+ 	   {base = RSF;}
+ 	  if (DF.b == NB)
+ 	   {base = RNB;}
+ 	  }
+
+ 	 if (DF.k == lit)
+ 	 {
+ 	  name = DF.n;
+ 	  base = 0;
+ 	 }
+       }
+     else
+	{
+	 i_error = true;
+         myPROP->Stop = true;
+	}
+     } 			// end of valid instruction
+       dump_state();
+    }		//  end of !DFheld
+   }		// end of normal clock action
+  } 		// end of clock event
+
+ if (ev.from_port(from_execute))	// operand for waiting base order
+  {
+   SIM_CAST(int, operand, ev);
+   if (DF.f == XNB_LD)
+    {RXNB = operand & 1074541822;}
+   if (DF.f == XNB_PL)
+    {RXNB = (RXNB + operand) & 1074541822;}
+
+   if (DF.f == SF_LD)
+    {RSF = operand & 65534;}
+   if (DF.f == SF_PL)
+    {RSF = (RSF + operand) & 65534;}
+   if (DF.f == SFNB_PL)
+    {RSF = (RNB + operand) & 65534;}
+
+   if ((DF.f == SF_LD) || (DF.f == SF_PL) || (DF.f == SFNB_PL))
+    {myExecute->S6.word1 = 0;}
+
+   if (DF.f == NB_LD)
+    {RNB = operand & 65534;}
+   if (DF.f == NBSF_PL)
+    {RNB = (RSF + operand) & 65534;}
+   if (DF.f == NB_PL)
+    {RNB = (RNB + operand) & 65534;}
+
+   sim_hold(4);
+   myPROP->DFfreeDF = true;
+   my_state = DECODE_IDLE;
+   dump_state();
+   if (DF.f == STOP)
+    {
+     myIBU_DF->ClearIB_Registers();
+     sim_hold(4);
+     myPROP->Stop = true;
+    }
+  }		// end of execute base order
+}		// end of while loop
+$report
+
+ if (i_error)
+  {printf(">>>> SIMULATION ABORTED: instruction in DF is not allowed\n");}
+
+ if (not_imp)
+  {printf(">>>> SIMULATION ABORTED: instruction in DF not implemented\n");}

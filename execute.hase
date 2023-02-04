@@ -1,0 +1,427 @@
+// Project	MU5
+// Entity	EXECUTE
+// File		execute.hase version 1a
+// Date		March 2013
+
+$class_decls
+
+  prop * myPROP;
+  decode * myDecode;
+  assoc * myAssoc;
+  ns_read * myRead;
+  assemble * myAssem;
+
+// structures and variables
+
+ bool F5held, BSt_Outstanding, BSt_Ready, comp_ready, STACK_Ready;
+ bool ack_wait, ack_wait2, base_ld_wait, bn_wait, control_wait, stack_wait, dwrite_wait;
+ int clock, operand, w_line;
+ int Time;
+ t_data64_pkt input_from_hway;
+
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myDecode = (decode*)sim.get_entity(sim.get_entity_id("DECODE"));
+  myAssoc = (assoc*)sim.get_entity(sim.get_entity_id("ASSOC"));
+  myRead = (ns_read*)sim.get_entity(sim.get_entity_id("READ"));
+  myAssem = (assemble*)sim.get_entity(sim.get_entity_id("ASSEMBLE"));
+
+// predicates
+
+ sim_from_port Clock_In(clock_in);
+ sim_from_port H_Input(from_hway);
+ sim_from_port BW_Input(bw_from_hway);
+
+// variables
+
+  F5held = false;
+  BSt_Outstanding = false;
+  BSt_Ready = false;
+  comp_ready = false;
+  STACK_Ready = false;
+  S6.word1 = 0;
+  base_ld_wait = false;
+  ack_wait = false;
+  ack_wait2 = false;
+  bn_wait = false;
+  control_wait = false;
+  stack_wait = false;
+  dwrite_wait = false;
+
+while (!myPROP->Stop)
+{
+
+ if (sim_waiting(ev, Clock_In) > 0)
+  {
+   SIM_CAST(int, clock, ev);
+   if (clock < 0)			// invalidate F5
+    {
+     F5.Type = 'I';
+     HI.Type = 'I';
+     my_state = EXECUTE_IDLE;
+     dump_state();
+     sim_hold(5);
+     send_CLOCK(prop_ack, clock);
+Time = sim_clock();
+//printf("Time = %d EXCUTE starting next clock after invalidate\n", Time);
+    }
+  else // if (!F5held)	// normal clock action unless F5 is held for a B write
+   {
+    F5 = myAssem->F4out;
+    A5 = myAssem->A4;
+    S5 = myAssem->S4;
+    HI.t = F5.t;
+    HI.f = F5.f;
+    HI.k = F5.k;
+    HI.address = A5;
+    HI.Type = F5.Type;
+    HI.word0 = myAssem->value.word0;
+    HI.word1 = myAssem->value.word1;
+
+if (sim_waiting(ev, BW_Input) > 0)
+ {
+  SIM_CAST(t_data64_pkt, input_from_hway, ev);
+  sim_hold(1);
+  if (input_from_hway.Type == 'W')
+   {
+    my_state = EXECUTE_HELD;
+    dump_state();
+    sim_hold(5);
+    HO.word1 = input_from_hway.word1;
+    myAssem->VU = HO;
+    myRead->B_Write();
+   }
+  else if (input_from_hway.Type == 'C')
+   {
+//    if (input_from_hway.word1 == 2)
+//     {T1_T2_Bn.s = '-';}
+//    else
+//     {T1_T2_Bn.s = '+';}
+//    if (input_from_hway.word1 == 1)
+//     {strcpy (T1_T2_Bn.z, "0");}
+//    else
+//     {strcpy (T1_T2_Bn.z, "/0");}
+T1_T2_Bn.s = '+';
+strcpy (T1_T2_Bn.z, "/0");
+
+    if (input_from_hway.word1 == 2)
+     {T1_T2_Bn.s = '-';}
+//    else
+//     {T1_T2_Bn.s = '+';}
+    if (input_from_hway.word1 == 1)
+     {strcpy (T1_T2_Bn.z, "0");}
+//    else
+//     {strcpy (T1_T2_Bn.z, "/0");}
+
+    comp_ready = true;
+   }
+ }
+
+    if (F5.Type == 'I')
+     {
+      my_state = EXECUTE_IDLE;
+      dump_state();
+      sim_hold(5);
+      send_CLOCK(prop_ack, clock);
+     }
+
+    else					// valid instruction
+     {
+      my_state = EXECUTE_BUSY;
+      dump_state();
+      if (F5.f == nop)
+       {
+        CO++;
+        sim_hold(5);
+        send_CLOCK(prop_ack, clock);
+       }
+
+     else if ((F5.k == stack) && (F5.Type == 'D'))
+      {
+        sim_hold(5);
+        send_CLOCK(prop_ack, clock);
+       }
+
+     else if (F5.Type =='N')	// NSneq request, 64-bit word address is in HI.word1
+      {
+       HI.dest = 3;
+       sim_hold(5);
+       send_PROP_H_PKT(to_hway, HI);
+       ack_wait = true;
+      }
+
+      else if (Set_Bn(F5))
+      {
+       HI.dest = 0;
+       sim_hold(5);
+       send_PROP_H_PKT(to_hway, HI);
+       bn_wait = true;
+      }
+
+    else if (Control_Transfer(F5))
+      {
+       HI.dest = 0;
+       sim_hold(5);
+       send_PROP_H_PKT(to_hway, HI);
+       control_wait = true;
+      }
+
+      else if ( (Base_Load(F5)) && !SEOP_wait(F5) )
+       {
+        HI.dest = 0;
+        sim_hold(5);
+        send_PROP_H_PKT(to_hway, HI);
+        base_ld_wait = true;
+       }
+
+      else if (SEOP_wait(F5))	// needs a response from ACC or Dop
+	 {
+        HI.dest = 3;
+        sim_hold(5);
+        send_PROP_H_PKT(to_hway, HI);
+	 ack_wait2 = true;
+       }
+
+     else if (Base_Store(F5))
+      {
+       if (NS_access(F5))	// No need to go round highway
+        {
+	  myRead->Base_Write();
+          CO++;
+ 	  sim_hold(5);
+ 	  send_CLOCK(prop_ack, clock);
+         }				// end of Store to NS
+       }
+//  >>>>>>> not if k == SB or S0!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      else if ((F5.t == B) && !( (F5.k == stack) && (F5.Type == 'D')) 
+	&& !(F5.k == SB) && !(F5.k == S0) )
+       {						// B-arith instruction
+        HI.dest = 2;
+        sim_hold(5);
+        send_PROP_H_PKT(to_hway, HI);
+	ack_wait = true;
+       }
+      else if ((F5.f == STACK) && (F5.Type == 'D'))
+       {
+        HI.dest = 0;
+        sim_hold(5);
+        send_PROP_H_PKT(to_hway, HI);
+        stack_wait = true;
+       }
+      else if ((F5.f == STACK) && (F5.Type == 'V'))
+       {
+        CO++;
+        sim_hold(5);
+        send_CLOCK(prop_ack, clock);
+Time = sim_clock();
+//printf("Time = %d EXCUTE starting next clock - STACK V instruction\n", Time);
+       }
+
+// Instructions to Dr
+
+     else if ((F5.t == ACC) || ((F5.t == STS) && (F5.f != STACK))
+	 || (F5.k == SB) || (F5.k == S0))
+      {
+       HI.dest = 3;
+       if ((F5.b == D) && (F5.k == SB))
+	{HI.k = DB;}
+       if ((F5.b == D) && (F5.k == S0))
+	{HI.k = D0;}
+       send_PROP_H_PKT(to_hway, HI);	// Instruction to Dr - expect an Ack
+       ack_wait = true;
+	if (F5.k == SB)
+	 {
+	  HI.f = nop;
+	  HI.Type = 'M';
+	  HI.dest = 2;
+	  HI.word0 = 0;
+	  HI.word1 = 0;
+	  send_PROP_H_PKT(to_hway, HI);  // Modifier request to B if SB - expect an Ack
+	  ack_wait = false;
+	  ack_wait2 = true;
+	 }
+        if (F5.t == B)
+	 {
+	  ack_wait = false;
+	  ack_wait2 = true;
+	 }
+      }			// end of structure access
+     if  (UpdateS6(F5))
+      {
+       S6.word0 = S5;
+       S6.word1 = 1;
+      }
+
+    }			// end of valid instruction
+  }			// end of normal clock action
+ }			// end of clock input
+
+if (sim_waiting(ev, H_Input) > 0)
+ {
+  SIM_CAST(t_data64_pkt, input_from_hway, ev);
+   if (input_from_hway.Type != 'N')
+    {
+     if (ack_wait)
+      {
+       ack_wait = false;
+       if ((F5.Type == 'V') || (F5.Type == 'A')) // if 'N', ns_read will restart clock
+        {
+         CO++;
+         send_CLOCK(prop_ack, clock);
+         my_state = EXECUTE_IDLE;
+        }
+       else if ((F5.Type == 'D') || (F5.Type == 'B'))
+        {send_CLOCK(prop_ack, clock);}
+      }
+
+     else if (ack_wait2)
+      {
+       ack_wait2 = false;
+       if (SEOP_wait(F5))
+	{
+	 if ((F5.t == Org) || (F5.f == STOP))
+          {base_ld_wait = true;}
+	 else if (F5.t == STS)
+	  {dwrite_wait = true;}
+	}
+       else
+        {ack_wait = true;}
+      }
+
+     else if (bn_wait)
+      {
+      T1_T2_Bn.bn = 0;
+       if (   ((F5.f == Bneq) && (strcmp(T1_T2_Bn.z, "0") == 0))
+	   || ((F5.f == Bnne) && (strcmp(T1_T2_Bn.z, "/0") == 0))
+	   || ((F5.f == Bnge) && ( (strcmp(T1_T2_Bn.z, "0") == 0)
+				|| (T1_T2_Bn.s == '+') ))
+	   || ((F5.f == Bnlt) && (T1_T2_Bn.s == '-'))
+	   || ((F5.f == Bnle) && ( (strcmp(T1_T2_Bn.z, "0") == 0)
+				|| (T1_T2_Bn.s == '-') ))
+	   || ((F5.f == Bngr) && (T1_T2_Bn.s == '+'))
+	  )
+	  {T1_T2_Bn.bn = 1;}				// test true
+      }					// end of boolean wait
+
+     else if ((control_wait) && ((F5.f == BR) || comp_ready))
+      {
+       control_wait = false;
+       comp_ready = false;
+       HO.word0 = input_from_hway.word0;
+       HO.word1 = input_from_hway.word1;
+       if ( (F5.f == BR)
+	 || ((F5.f == BReq) && (strcmp(T1_T2_Bn.z, "0") == 0))
+	 || ((F5.f == BRne) && (strcmp(T1_T2_Bn.z, "/0") == 0))
+	 || ((F5.f == BRge) && ( (strcmp(T1_T2_Bn.z, "0") == 0)
+			|| (T1_T2_Bn.s == '+') ))
+	 || ((F5.f == BRlt) && (T1_T2_Bn.s == '-'))
+	 || ((F5.f == BRle) && ( (strcmp(T1_T2_Bn.z, "0") == 0)
+				|| (T1_T2_Bn.s == '-') ))
+	 || ((F5.f == BRgr) && (T1_T2_Bn.s == '+'))
+	  )
+	{						// branch taken
+Time = sim_clock();
+//printf("Time = %d EXECUTE branch taken\n", Time);
+	 if (F5.Type == 'S') 				// branch predicted
+	  {
+//printf("Time = %d EXECUTE branch predicted\n", Time);
+	   CO = CO + HO.word1;
+          }
+	 else if ((F5.Type != 'B') && (F5.k == lit)) // predictable but not predicted
+	  {
+//printf("Time = %d EXECUTE branch predictable but not predicted\n", Time);
+	   myPROP->Trace();	// send CO in F packet to IBU
+	   sim_hold(1);
+	   CO = CO + HO.word1;
+	   myPROP->Clear = true;
+	   myPROP->Branch();	// clear pipeline and send CO in T packet to IBU
+	  }			  // end of predicted but not predicted
+	 else			// unpredictable		
+	  {
+	   CO = CO + HO.word1;
+	   myPROP->Clear = true;
+	   myPROP->Branch();	// clear pipeline and send CO in T packet to IBU
+	  }			  // end of unpredictable
+	}						// end of branch taken
+        else						// not taken
+	 {
+//printf("Time = %d EXECUTE branch not taken\n", Time);
+	  CO++;
+	  if (F5.Type == 'S')			// mis-predicted
+	   {
+//printf("Time = %d EXECUTE branch mis-predicted\n", Time);
+
+	    myPROP->Clear = true;
+	    myPROP->Branch();	// clear pipeline and send CO in T packet to IBU
+	   }
+         }				// end of not taken
+      sim_hold(5);
+      send_CLOCK(prop_ack, clock);
+
+   }				// end of control wait
+
+  else if (base_ld_wait)
+    {
+     base_ld_wait = false;
+     HO.word0 = input_from_hway.word0;
+     HO.word1 = input_from_hway.word1;
+     sim_schedule(to_decode, 0.0, PROP_H_PKT, SIM_PUT(int, HO.word1));
+     CO++;
+     send_CLOCK(prop_ack, clock);
+    }				// end of base load wait
+
+   else if (stack_wait)
+    {
+     stack_wait = false;
+     HO.word0 = input_from_hway.word0;
+     HO.word1 = input_from_hway.word1;
+     myAssem->VU = HO;
+     myRead->STACK_Write();
+     sim_hold(5);
+     send_CLOCK(prop_ack, clock);
+    }			// end of stack_wait
+
+   else if (dwrite_wait)
+    {
+     dwrite_wait = false;
+     HO.word0 = input_from_hway.word0;
+     HO.word1 = input_from_hway.word1;
+     sim_hold(1);
+     if (input_from_hway.Type == 'W')
+      {myRead->D_Write();}			// instruction in F3 is set Invalid 
+     else if (input_from_hway.Type == 'C')
+      {
+       T1_T2_Bn.s = '+';
+       strcpy (T1_T2_Bn.z, "/0");
+       if (input_from_hway.word1 == 2)
+        {T1_T2_Bn.s = '-';}
+       if (input_from_hway.word1 == 1)
+        {strcpy (T1_T2_Bn.z, "0");}
+       comp_ready = true;
+      }
+     sim_hold(4);
+     if (F5.Type == 'V')
+      {CO++;}
+     send_CLOCK(prop_ack, clock);
+    }
+
+    }			// end of input from highway != N
+
+   else //if (input_from_hway.Type == 'N')
+    {
+     HO.word0 = input_from_hway.word0;
+     HO.word1 = input_from_hway.word1;
+     myRead->data_from_obs = true;
+    }
+  }					// end of event from highway
+ else
+  {sim_hold(1);}			// otherwise time stands still
+}

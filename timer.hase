@@ -1,0 +1,38 @@
+// Project	MU5
+// Entity	timer
+// File		timer.hase
+// Date		April 2013
+
+$class_decls
+
+  prop * myPROP;
+
+// structures and variables
+
+bool time_out;
+// classes
+
+$class_defs
+
+$body
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+
+time_out = false;
+
+while (!myPROP->Stop)
+{
+   sim_hold(10);
+   Max_Time_Left = Max_Time_Left - 10;
+   dump_globals();
+  if (Max_Time_Left <= 0)
+   {
+    time_out = true;
+    myPROP->Stop = true;
+   }
+}
+
+$report
+
+if (time_out)
+{printf("Simulation stopped : maximum time limit exceeded \n");}

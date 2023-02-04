@@ -1,0 +1,118 @@
+// Project	MU5
+// Entity	ASSEMBLE
+// File		assem.hase
+// Date		March 2013
+
+$class_decls
+
+  prop * myPROP;
+  ns_read * myRead;
+
+// structures and variables
+
+// bool F4held;
+ bool setStop;
+ int clock, Time;
+ t_fn_reg F4out;
+ t_double_int value;
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myRead = (ns_read*)sim.get_entity(sim.get_entity_id("READ"));
+
+// variables
+
+  setStop = false;
+  F4out = F4;
+
+while (!myPROP->Stop)
+{
+ sim_get_next(ev);
+ if (ev.from_port(clock_in))
+  {
+   SIM_CAST(int, clock, ev);
+   if (clock < 0)
+    {
+     F4.Type = 'I';
+     F4out.Type = 'I';
+     my_state = ASSEM_IDLE;
+     dump_state();
+    }
+   else			// normal clock action
+    {
+     if (myPROP->F4held)
+      {
+       my_state = ASSEM_HELD;
+       F4out.Type = 'I';
+      }
+     else
+     {
+      F4 = myRead->F3out;
+      F4out = F4;
+      VF = myRead->buffer;	// output from Name Store
+      VU = myRead->VUinput;	// value from HO or Base registers
+      A4 = myRead->A3;
+      S4 = myRead->S3;
+      if (F4.Type == 'I')
+       {my_state = ASSEM_IDLE;}
+      else			// valid instruction
+       { 
+        my_state = ASSEM_BUSY;
+
+//       if ((F4.k == lit) || (F4.Type == 'N') || (F4.Type == 'A') || (F4.Type == 'B'))
+//       if ((F4.k == lit) || (F4.Type == 'N'))
+       if (F4.k == lit)
+        {
+	  value.word0 = 0;
+      	  value.word1 = A4;
+        }
+
+     else if ((F4.f == XNB_ST) || (F4.f == NB_ST) || (F4.f == SF_ST))
+       {
+	value.word0 = VU.word0;
+	value.word1 = VU.word1;
+       }
+
+       else if ( (F4.k == V32) && (F4.t != ACC) && (F4.Type != 'N') && (F4.Type != 'A'))
+        {
+         value.word0 = 0;
+	 if ((A4 & 1) == 0)
+	  {value.word1 = VF.word0;}
+    	 else
+ 	  {value.word1 = VF.word1;}
+        }
+       else
+	{
+	 value.word0 = VF.word0;
+	 value.word1 = VF.word1;
+        }
+       if (F4.Type == 'U')
+        {
+         F4out.Type = 'V';
+	 if ((F4.k == V64) || (F4.k == stack))
+	  {
+	   value.word0 = VU.word0;
+	   value.word1 = VU.word1;
+	  }
+	 else if (F4.k == V32)
+          {
+           value.word0 = 0;
+	   if ((A4 & 1) == 0)
+	    {value.word1 = VU.word0;}
+     	   else
+ 	   {value.word1 = VU.word1;}
+          }
+        }
+      }	       // end of valid instruction
+    } 	       // end of !Held
+   dump_state();
+   }		// end of normal clock action
+  }		// end of clock event
+}		// end of while

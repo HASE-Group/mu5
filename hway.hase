@@ -1,0 +1,236 @@
+// Project	MU5
+// Entity	Central Highway
+// File		hway.hase
+// Start date	March 2013
+// Last update	Jan 2014
+
+/*		Inputs		Outputs
+
+	0	Execute		Execute
+	1	B-arith		Execute (B ST result)
+	2	B-arith		B-arith
+	3	Dr		Dr
+	4	Dop		Dop
+	5	Acc
+*/
+
+$class_decls
+
+ prop * myPROP;
+
+// structures and variables
+
+ bool send_to_B, send_to_DR, send_to_PROP;
+ bool B_ready, DR_ready;
+
+ int dest;
+ int Time;
+
+ t_prop_hway from_prop, CH_content;
+ t_dop_hway from_dop;
+ t_au_instrn output_to_b;
+ t_au_result from_acc, from_b, from_dr;
+ t_data64_pkt output_to_prop, output_to_dop;
+ t_dr_pkt output_to_dr;
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+
+ send_to_B = false;
+ send_to_DR = false;
+ send_to_PROP = false;
+
+ B_ready = true;
+ DR_ready = true;
+
+while (!myPROP->Stop)
+{
+ sim_get_next(ev);
+ if (ev.from_port(input[0]))		// from PROP
+  {
+   SIM_CAST(t_prop_hway, from_prop, ev);
+   my_state = HWAY_BUSY;
+   dump_state();
+   sim_hold(4);
+   dest = from_prop.dest;
+   CH_content.t = from_prop.t;
+   CH_content.f = from_prop.f;
+   CH_content.k = from_prop.k;
+   CH_content.address = from_prop.address;
+   CH_content.word0 = from_prop.word0;
+   CH_content.word1 = from_prop.word1;
+   CH_content.dest = from_prop.dest;
+   CH_content.Type = from_prop.Type;
+   if (dest == 0)
+    {
+     send_to_PROP = true;
+    }
+   else if (dest == 2)
+    {
+     output_to_b.f = CH_content.f;
+     output_to_b.operand = CH_content.word1;
+     output_to_b.Type = CH_content.Type;
+     send_to_B = true;
+    }
+   else if (dest == 3)
+    {
+     output_to_dr.t = CH_content.t;
+     output_to_dr.f = CH_content.f;
+     output_to_dr.k = CH_content.k;
+     output_to_dr.address = CH_content.address;
+     output_to_dr.word0 = CH_content.word0;
+     output_to_dr.word1 = CH_content.word1;
+     output_to_dr.Type = CH_content.Type;
+     send_to_DR = true;
+    }
+   else if (dest == 6)
+    {
+     output_to_b.f = nop;
+     output_to_b.operand = 0;
+     output_to_b.Type = 'M';
+     send_to_B = true;
+     output_to_dr.t = CH_content.t;
+     output_to_dr.f = CH_content.f;
+     output_to_dr.k = CH_content.k;
+     output_to_dr.address = CH_content.address;
+     output_to_dr.word0 = CH_content.word0;
+     output_to_dr.word1 = CH_content.word1;
+     output_to_dr.Type = CH_content.Type;
+     send_to_DR = true;
+    }
+   }					// end of packet from PROP
+
+ if (ev.from_port(input[1]))		// packet from B control output
+  {
+   SIM_CAST(t_au_result, from_b, ev);
+   sim_hold(1);
+   if (from_b.Type == 'K')
+    {
+     B_ready = true;
+     output_to_prop.Type = 'K';
+     output_to_prop.word0 = 0;
+     output_to_prop.word1 = 0;
+     sim_schedule(output[0], 0.0, PROP_H_PKT, SIM_PUT(t_data64_pkt, output_to_prop));
+							 // ack to PROP
+    }
+  }					// end of packet from B control output
+
+  if (ev.from_port(input[2]))		// packet from B data output
+  {
+   SIM_CAST(t_au_result, from_b, ev);
+   sim_hold(4);
+   my_state = HWAY_BUSY;
+   dump_state();
+     B_ready = true;
+     output_to_prop.Type = from_b.Type;
+     output_to_prop.word0 = 0;
+     output_to_prop.word1 = from_b.operand;
+     send_DATA_PKT(output[1], output_to_prop);
+  }					// end of packet from B data output
+
+if (ev.from_port(input[3]))		// packet from Dr
+  {
+   SIM_CAST(t_au_result, from_dr, ev);
+   sim_hold(1);
+   if (from_dr.Type == 'C')
+    {
+     DR_ready = true;
+     output_to_prop.Type = from_dr.Type;
+     output_to_prop.word0 = 0;
+     output_to_prop.word1 = from_dr.operand;
+     send_DATA_PKT(output[0], output_to_prop);	// compare result to PROP
+    }
+   if (from_dr.Type == 'K')
+    {
+     DR_ready = true;
+     output_to_prop.Type = 'K';
+     output_to_prop.word0 = 0;
+     output_to_prop.word1 = 0;
+     sim_schedule(output[0], 0.0, PROP_H_PKT, SIM_PUT(t_data64_pkt, output_to_prop));
+							 // ack to PROP
+    }
+   }
+
+ if (ev.from_port(input[4]))		// from Dop
+  {
+   SIM_CAST(t_dop_hway, from_dop, ev);
+   my_state = HWAY_BUSY;
+   dump_state();
+   sim_hold(4);
+   dest = from_dop.dest;
+//   CH_content.t = from_dop.t;
+   CH_content.f = from_dop.f;
+//   CH_content.k = from_dop.k;
+//   CH_content.address = from_dop.address;
+   CH_content.word0 = from_dop.word0;
+   CH_content.word1 = from_dop.word1;
+   CH_content.dest = from_dop.dest;
+   CH_content.Type = from_dop.Type;
+   if (dest == 0)
+    {send_to_PROP = true;}
+   if (dest == 2)
+    {send_to_B = true;}
+    output_to_dop.Type = 'K';
+    output_to_dop.word0 = 0;
+    output_to_dop.word1 = 0;
+    sim_schedule(output[4], 0.0, DATA_PKT, SIM_PUT(t_data64_pkt, output_to_dop));
+							 // ack to DOP
+  }
+
+ if (ev.from_port(input[5]))		// packet from ACC
+  {
+   SIM_CAST(t_au_result, from_acc, ev);
+   my_state = HWAY_BUSY;
+   dump_state();
+   sim_hold(4);
+   if ((from_acc.Type == 'Z') || (from_acc.Type == 'C'))
+    {
+     output_to_prop.Type = from_acc.Type;
+     output_to_prop.word0 = 0;
+     output_to_prop.word1 = from_acc.operand;
+     send_DATA_PKT(output[0], output_to_prop);
+     }
+   else
+    {
+     output_to_dop.Type = from_acc.Type;
+     output_to_dop.word0 = 0;
+     output_to_dop.word1 = from_acc.operand;
+     send_DATA_PKT(output[4], output_to_dop);
+    }
+   }
+
+  if (send_to_PROP)
+    {
+     output_to_prop.Type = CH_content.Type;
+     output_to_prop.word0 = CH_content.word0;
+     output_to_prop.word1 = CH_content.word1;
+     send_DATA_PKT(output[0], output_to_prop);
+     send_to_PROP = false;
+    }
+
+  if ((send_to_B) && (B_ready))
+    {
+     output_to_b.Type = CH_content.Type;
+     output_to_b.f = CH_content.f;
+     output_to_b.operand = CH_content.word1;
+     send_AU_PKT(output[2], output_to_b);
+     send_to_B = false;
+     B_ready = false;
+    }
+  if ((send_to_DR) && (DR_ready))
+    {
+     send_DR_PKT(output[3], output_to_dr);
+     send_to_DR = false;
+     DR_ready = false;
+    }
+  my_state = HWAY_IDLE;
+  dump_state();
+}
+

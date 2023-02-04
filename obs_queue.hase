@@ -1,0 +1,157 @@
+// Project:	MU5
+// Entity	OBS Queue
+// File:	obs_queue.hase
+// Start date:	July 2013
+// Last update	March 2014
+
+/*
+New entries are written to the tail of the Queue
+Outputs are read from the head of the Queue
+head of Queue is Head_Tail.word0
+tail of Queue is Head_Tail.word1
+*/
+
+$class_decls
+
+//entity references
+
+ prop * myPROP;
+ obs_ip * myOBS_IP;
+ obs_op * myOBS_OP;
+
+//structures and variables
+
+ bool q_delete, q_empty, q_full, bp_full;
+ bool Bypass_full, tag_in_q;
+ int i;
+ int Time;
+ t_q_reg BP_input, Q_input, Q_output;
+
+//classes
+
+int Q_Ready();
+int tag_in_Q(int tag);
+
+$class_defs
+
+int obs_queue::Q_Ready()
+{
+ Q_output = Queue[Head_Tail.word0];
+ if ( (Q_output.Type != 'I') && ( (myOBS_OP->Value[Q_output.tag].Full == 1)
+	|| (((Q_output.k == V32) || (Q_output.k == V64)) && Q_output.Type == 'V')
+			 || (Q_output.k == lit) )
+    )
+  {return 1;}
+ else {return 0;}
+}
+
+int obs_queue::tag_in_Q(int tag)
+{
+ tag_in_q = false;
+ for (i=0; i<8; i++)
+   {
+    Q_output = Queue[i];
+    if ( (Q_output.Type != 'I') && (tag == Q_output.tag) )
+    tag_in_q = true;
+   }
+  if (tag_in_q)
+  {return 1;}
+ else {return 0;}
+}
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myOBS_IP = (obs_ip*)sim.get_entity(sim.get_entity_id("OBS_IP"));
+  myOBS_OP = (obs_op*)sim.get_entity(sim.get_entity_id("OBS_OP"));
+
+// predicates
+
+  sim_from_port Q_Input(queue_input);
+  sim_from_port BP_Input(bypass_input);
+
+// initialise variables
+
+  q_delete = false;
+  q_empty = true;
+  q_full = false;
+  bp_full = false;
+  Bypass_full = false;
+
+  for (i=0; i<8; i++)
+   {
+    Queue[i].Type = 'I';
+    Queue[i].tag = 0;
+   }
+  my_state = OBS_QUEUE_IDLE;
+  dump_state();
+
+while(!myPROP->Stop)
+{
+ if (q_delete)
+  {
+   q_delete = false;
+   Q_output.Type = 'I';
+   Queue.Update(Head_Tail.word0, Q_output);
+   if (q_full)
+    {q_full = false;}
+   q_empty = true;
+   for (i=0; i<8; i++)
+    {
+     if (Queue[i].Type != 'I')
+      {q_empty = false;}
+    }
+   if (q_empty)
+    {
+     my_state = OBS_QUEUE_IDLE;
+//     dump_state();
+    }
+
+   Head_Tail.word0 ++;
+   if (Head_Tail.word0 == 8)
+    {Head_Tail.word0 = 0;}
+     dump_state();
+   sim_hold(4);
+  }
+
+ if (sim_waiting(ev, Q_Input) > 0)
+  {
+   SIM_CAST(t_q_reg, Q_input, ev);
+   Queue.Update(Head_Tail.word1, Q_input);
+   Head_Tail.word1 ++;
+   if (Head_Tail.word1 == 8)
+    {Head_Tail.word1 = 0;}
+   if ( (Head_Tail.word1 == (Head_Tail.word0 - 1))
+        || ( (Head_Tail.word1 == 7) && (Head_Tail.word0 == 0) )
+      )
+    {q_full = true;}
+   my_state = OBS_QUEUE_BUSY;
+   dump_state();
+   sim_hold(4);
+  }
+
+ else if (sim_waiting(ev, BP_Input) > 0)
+  {
+   my_state = OBS_QUEUE_BUSY;
+   SIM_CAST(t_q_reg, BP_input, ev);
+   Bypass = BP_input;
+   dump_state();
+   sim_hold(4);
+   Bypass_full = true;
+   bp_full = true;
+  }
+
+  else
+  {
+   if (bp_full && !Bypass_full)
+    {
+     bp_full = false;
+     Bypass.Type = 'I';
+     my_state = OBS_QUEUE_IDLE;
+     dump_state();
+    }
+   sim_hold(1);}
+}
+

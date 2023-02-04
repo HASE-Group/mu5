@@ -1,0 +1,267 @@
+// Project	MU5
+// Entity	IBU_SR
+// File		ibu_sr.hase
+// Date		March 2013
+
+/* The IBU Store Request unit receives a CO (program counter) address from PROP at
+   the start of a simulation and when whenever PROP executes a branch. In response
+   it sends a Priority instruction request to SAC and then continues autonomously
+   prefetching further instructions in sequence, using an Advanced Control register,
+   AC. Some trickery is needed to create an internal clocking mechanism in the IBU
+   to drive this pre-fetching. Each time it sends a request to SAC, it also sends a
+   delayed signal to itself via its to_ibu and from_ibu ports. These are connected
+   together by a zero-width link, so it's not shown on the screen.
+   The IBU_SR also contains the Jump Trace mechanism used to predict impending
+   branches. This is updated using jump-from and jump-to addresses from PROP and each
+   time AC is incremented, the new value is tested against the Jump_From addresses
+   in the Trace. If there is a match, the Jump_To address is used instead.
+*/
+
+$class_decls
+
+  prop * myPROP;
+  ibu_df * myIBU_DF;
+
+// structures and variables
+
+  bool match, store_TO_Addr;
+  bool use_To_address;
+  bool dec_outstanding;
+  bool prefetch;
+  int i, clock, line, SR, outstanding;
+  int To_address;
+  int start_prefetch;
+  int Time, Tag;
+
+  t_r_request newCO, i_request;
+  t_unpack UP_input;
+  t_jump_trace trace_buffer;
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+  myIBU_DF = (ibu_df*)sim.get_entity(sim.get_entity_id("IBU_DF"));
+
+// initialise variables
+
+  store_TO_Addr = false;
+  use_To_address = false;
+  dec_outstanding = false;
+  prefetch = false;
+  start_prefetch = 0;
+  outstanding = 0;
+  Tag = 0;
+
+  UP_input.instrns = 0;
+  UP_input.msia = 0;
+  UP_input.seq = 0;
+  UP_input.tag = 0;
+
+while (!myPROP->Stop)
+{
+ sim_get_next(ev);
+
+ if (ev.from_port(from_prop))
+  {
+   SIM_CAST(t_r_request, newCO, ev);
+   if (newCO.Type == 'F')	//     write newCO to Jump Trace From field
+    {
+     for (i=0; i<4; i++)
+      {
+       trace_buffer = Jump_Trace[i];
+       if (trace_buffer.LP == 1)
+       {line = i;}
+      }
+     trace_buffer.From_address = newCO.address;
+     store_TO_Addr = true;
+    }
+   else if (newCO.Type == 'T')
+    {
+     myIBU_DF->ClearIB_Registers();
+     prefetch = false;
+     outstanding = 0;
+     if (store_TO_Addr	)	//      write newCO to Jump Trace To field
+      {
+      trace_buffer.LP = 0;
+      trace_buffer.Valid = 1;
+      trace_buffer.To_address = newCO.address;
+      Jump_Trace.Update(line, trace_buffer);
+      line++;						// move LP to next line
+      if (line == 4)
+       {line = 0;}
+      trace_buffer = Jump_Trace[line];
+      trace_buffer.LP = 1;
+      Jump_Trace.Update(line, trace_buffer);
+       store_TO_Addr = false;
+      }
+     AC = newCO.address;
+     sim_hold(1);
+     my_state = IBU_SR_BUSY;
+     dump_state();
+     sim_hold(1);
+     SR = AC;
+
+// send priority instruction request to SAC
+     i_request.address = SR >> 1;
+     i_request.Type = 'P';
+     i_request.tag = Tag;
+     send_I_FETCH(to_sac,i_request);
+//Time = sim_clock();
+//printf("Time = %d IBU SR sending P request to SAC, SR = %d tag = %d\n", Time, SR, Tag);
+     Tag ++;
+
+// now create Unpack Record entry
+     if ((AC & 1) == 0)		// AC points to first instruction of pair
+      {
+       UP_input.instrns = 2;		// use both instructions
+       UP_input.msia = 0;
+       UP_input.seq = 0;
+       AC = AC + 2;
+      }
+     else				// AC points to second instruction of pair
+      {
+       UP_input.instrns = 1;		// use only second instruction
+       UP_input.msia = 1;
+       UP_input.seq = 0;
+       AC ++;
+      }				// AC now points to the next word to be pre-fetched
+     UP_input.tag = Tag;
+     send_UPR_PKT(to_ibu_df, UP_input);
+//printf("IBU_SR sending UPR packet to IBU_DF, tag = %d\n", Tag);
+
+// and increase outstanding by 1 or 2
+     outstanding = outstanding + UP_input.instrns;
+     sim_hold(4);
+
+// now initiate prefetching 
+     start_prefetch = 1;
+     sim_schedule(to_ibu_sr, 0.0, CLOCK, SIM_PUT(int, start_prefetch));
+    }
+   }
+
+if (ev.from_port(from_ibu_sr))
+ {
+  SIM_CAST(int, start_prefetch, ev);
+  if (start_prefetch == 1)
+   {prefetch = true;}
+  if (dec_outstanding)		// set by IBU Data Flow
+   {
+    outstanding --;
+    dec_outstanding = false;
+   }
+// check that there is space in the Instruction Buffers and in the Unpack Record
+  if  ((outstanding < 7) && (myIBU_DF->UPrecords < 4) && (prefetch))
+   {
+    start_prefetch = false;
+    my_state = IBU_SR_BUSY;
+    dump_state();
+    if (use_To_address)		// because there was a match in the Jump Trace
+     {
+      use_To_address = false;
+      AC = To_address;
+      dump_state();
+      if ((AC & 1) == 0)		// To_address points to first word of pair
+       {
+	 UP_input.instrns = 2;	// use both instructions
+	 UP_input.msia = 0;
+	 UP_input.seq = 0;
+	 AC = AC + 2;
+	}
+      else				// To_address points to second word of pair
+       {
+	 UP_input.instrns = 1;	// use only second instruction
+	 UP_input.msia = 1;
+	 UP_input.seq = 0;
+	 AC ++;
+	}			// AC now points to the next word to be pre-fetched
+      SR = To_address;
+     }		// end of if use_To_address
+    else		// normal prefetch
+     {
+      SR = AC;
+      UP_input.instrns = 2;
+      UP_input.msia = 0;
+      UP_input.seq = 0;
+
+   // test for a match on the new value of AC and AC+1
+      match = false;
+      for (i=0; i<4; i++)
+       {
+        trace_buffer = Jump_Trace[i];
+        if ((trace_buffer.From_address == AC) && (trace_buffer.Valid == 1))
+         {
+//Time = sim_clock();
+//printf("Clock %d IBU_SR match on first new address, AC = %d, \n", Time, AC);
+	  match = true;
+	  To_address = trace_buffer.To_address;
+	 }
+       }
+      if (match)			// use only first instruction of pair
+       {
+	 UP_input.instrns = 1;
+	 UP_input.msia = 0;
+	 UP_input.seq = 1;
+	 use_To_address = true;
+	}
+      else	// test for match on second address
+       {
+        AC ++;
+        match = false;
+        for (i=0; i<4; i++)
+         {
+          trace_buffer = Jump_Trace[i];
+          if ((trace_buffer.From_address == AC) && (trace_buffer.Valid == 1))
+	    {
+//Time = sim_clock();
+//printf("Clock %d IBU_SR match on second new address, i = %d, AC = %d\n", Time, i, AC);
+	     match = true;
+	     To_address = trace_buffer.To_address;
+	    }
+         }
+	if (match)			// use both instructions of pair
+	 {
+	  UP_input.instrns = 2;
+	  UP_input.msia = 0;
+	  UP_input.seq = 1;
+	  use_To_address = true;
+	 }
+	dump_state();
+       }	       // end of test for match on second address
+      AC ++;		// increment AC to point to next double word
+     }	// end of normal prefetch
+
+    UP_input.tag = Tag;
+    send_UPR_PKT(to_ibu_df, UP_input);
+
+    i_request.address = SR >>1;
+    i_request.Type = 'O';    		// Ordinary request
+    i_request.tag = Tag;
+    send_I_FETCH(to_sac,i_request);
+//Time = sim_clock();
+//printf("Clock %d IBU_SR sending O request packet to SAC, SR = %d tag = %d\n", Time, SR, Tag);
+    Tag ++;
+    outstanding = outstanding + UP_input.instrns;
+//      dump_state();
+   }		// end of outstanding < 7 etc
+ else
+  {
+   my_state = IBU_SR_HELD;
+   dump_state();
+   }
+ sim_hold(4);
+     sim_schedule(to_ibu_sr, 0.0, CLOCK, SIM_PUT(int, start_prefetch));
+ }	// end of event from ibu
+
+ if (myPROP->Stop)
+  {
+   my_state = IBU_SR_IDLE;
+   dump_state();
+  }
+}
+

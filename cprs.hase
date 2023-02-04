@@ -1,0 +1,128 @@
+// Project:	MU5
+// Entity	Current Page Registers
+// File:	cprs.hase
+// Date:	June 2013
+
+// Because memories are modelled as arrays of HASE types, it is not
+// possible to mix instructions, integers (fixed-point numbers) and
+// reals (floating-point numbers) in one array. However, in a paged 
+// machine it is possible to allocate separate blocks of memory to 
+// different types. This works well in the Atlas model because the
+// fixed-point and floating-point numbers and code can be in separate
+// areas of the virtual address space. In MU5, however, the address
+// space is formally segmented into a segment for named variables
+// (the Name Segment), segments for code and segments for array elements.
+// In the Name Segment, fixed-point variables, floating-point variables
+// and descriptors are intimately mixed together. Descriptors can be
+// represented fairly simply as a pair of 32-bit variables, but for
+// floating-point variables the choice is between representing them
+// as the integer equivalents of their floating-point bit patterns
+// (as in version 2 of the DLX model) and implementing the appropriate 
+// conversions or simply confining the model to fixed-point variables.
+// The latter option was chosen.
+// The CPRs are preloaded such that
+// Segment 0 (the Name Segment) is mapped to block 0 of the Local Store
+// Segment 1 is used for instructions and is mapped to Block 1
+// Segment 2 is used for array elements and is mapped to Block 2
+// In the real MU5 the CPRs were manipulated by software but this is
+// beyond the scope of this model.
+// Users are of course at liberty to re-code the model to change this
+// arrangement or to add more pages/blocks. 
+ 
+
+$class_decls
+
+//entity references
+
+  sac*mySAC;
+  d_store*myDisc;
+
+//structures and variables
+
+  bool match, address_error;
+  int i, cpr;
+  int page, block, l_block;
+
+  t_cpr_reg cpr_buffer;
+
+//classes
+
+int Translate(int page);
+void SetIdle();
+
+$class_defs
+
+int cprs::Translate(int page)
+{
+  my_state = CPRS_BUSY;
+  dump_state();
+  match = false;
+  for (i=0; i<4; i++)
+   {
+    cpr_buffer = Valid_Vadr_Radr[i];
+    if ((page == cpr_buffer.Vaddress) && (cpr_buffer.Valid == 1))
+     {match = true;
+       cpr = i;}
+    }
+
+  if (match)
+   {
+    cpr_buffer = Valid_Vadr_Radr[cpr];
+    block = cpr_buffer.Raddress;
+    return block;
+ }
+
+  else			// CPR NEQ
+    {
+     if (page == 256) 
+      {
+	cpr = 0;
+	l_block = 1;
+     }
+     else if (page == 0)
+      {
+	cpr = 1;
+	l_block = 0;
+     }
+     else if (page == 512)
+      {
+	cpr = 2;
+	l_block = 2;
+     }
+     else if (page ==768)
+      {
+	cpr = 3;
+	l_block = 3;
+     }
+     else 
+      {address_error = true;}
+     cpr_buffer.Valid = 1;
+     cpr_buffer.Vaddress = page;
+     cpr_buffer.Raddress = l_block;
+     Valid_Vadr_Radr.Update(cpr, cpr_buffer);
+     myDisc->l_block = l_block;
+     myDisc->transfer = true;
+     l_block = l_block | 32;
+     return l_block;
+   }
+}
+
+void cprs::SetIdle()
+{
+  my_state = CPRS_IDLE;
+  dump_state();
+}
+
+$body
+
+  mySAC = (sac*) sim.get_entity( sim.get_entity_id("SAC"));
+  myDisc = (d_store*) sim.get_entity( sim.get_entity_id("DISC_STORE"));
+  address_error = false;
+  my_state = CPRS_IDLE;
+  dump_state();
+
+$report
+
+ if (address_error)
+  {printf("address error in CPRs , page = %d \n", page);}
+

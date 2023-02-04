@@ -1,0 +1,215 @@
+// Project:	MU5
+// Entity	Accumulator Unit
+// File:	acc.hase
+// Date:	June 2013
+
+
+/*
+Acc functions are
+
+LD	ACC = operand
+SLD	Stack ACC, ACC = operand
+ST	operand = ACC
+ADD	ACC = ACC + operand
+SUB	ACC = ACC - operand
+MUL	ACC = ACC * operand
+DIV	ACC = ACC / operand
+XOR	ACC = ACC XOR operand
+OR	ACC = ACC OR operand
+SHL	ACC Shift Left by operand
+AND	ACC = ACC & operand
+RSUB	ACC = operand - ACC
+COMP	Set Compare bits according to (ACC - operand)
+RDIV	ACC = operand / ACC
+*/
+
+$class_decls
+
+
+//structures and variables
+
+ bool ACC_done, ACC_ready;
+ int input_operand, acc_result;
+ t_au_instrn acc_input;
+ t_au_result acc_output;
+
+ int Time;
+
+//entity references
+  prop * myPROP;
+
+$body
+
+  myPROP = (prop*) sim.get_entity( sim.get_entity_id("PROP"));
+
+  ACC_done = true;
+  ACC_ready = true;
+  my_state = ACC_IDLE;
+  dump_state();
+
+while(!myPROP->Stop)
+{
+ sim_get_next(ev);
+
+  if  (ev.from_port(input))	// instruction from Dop
+   {
+    SIM_CAST(t_au_instrn, acc_input, ev);
+    sim_hold(1);
+    INSTRN.f = acc_input.f;
+    INSTRN.operand = acc_input.operand;
+    if (INSTRN.f == ST)
+     {INSTRN.operand = 0;}
+    INSTRN.Type = acc_input.Type;
+    my_state = ACC_BUSY;
+    dump_state();
+     if (ACC_done 
+	 && !((acc_input.f == ST) || (acc_input.f == COMP))
+	)
+      {
+	ACC_ready = true;
+	ACC_done = false;
+	acc_output.Type = 'K';
+       sim_hold(1);
+	sim_schedule(to_dop, 0.0, RESULT_PKT, SIM_PUT(t_au_result, acc_output)); 
+	 }
+   
+   if (acc_input.f == LD)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing LD instruction\n", Time);
+	ACC = acc_input.operand;
+	sim_hold(4);
+      }
+   else if (acc_input.f == SLD)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing SLD instruction\n", Time);
+	ACC = acc_input.operand;
+	sim_hold(4);
+      }
+   else if (acc_input.f == ST)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing ST instruction\n", Time);
+	acc_output.operand = ACC;
+	acc_output.Type = 'W';
+	sim_hold(4);
+	send_RESULT_PKT(to_hway, acc_output);
+	acc_output.Type = 'K';
+	sim_schedule(to_dop, 0.0, RESULT_PKT, SIM_PUT(t_au_result, acc_output)); 
+      }
+
+   else if (acc_input.f == ADD)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing ADD instruction\n", Time);
+	ACC = ACC + acc_input.operand;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == SUB)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing SUB instruction\n", Time);
+	ACC = ACC - acc_input.operand;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == MUL)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing MUL instruction\n", Time);
+	ACC = ACC * acc_input.operand;
+	sim_hold(6);
+    }
+
+   else if (acc_input.f == DIV)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC starting DIV execution\n", Time);
+	ACC = ACC / acc_input.operand;
+	sim_hold(20);
+//Time = sim_clock();
+//printf("Time = %d ACC completing DIV execution\n", Time);
+    }
+
+   else if (acc_input.f == XOR)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing XOR instruction\n", Time);
+	ACC = ACC ^ acc_input.operand;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == OR)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing OR instruction\n", Time);
+	ACC = ACC | acc_input.operand;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == SHL)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing SHL instruction\n", Time);
+	ACC = ACC << acc_input.operand;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == AND)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing AND instruction\n", Time);
+	ACC = ACC & acc_input.operand;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == RSUB)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing RSUB instruction\n", Time);
+	ACC = acc_input.operand - ACC;
+	sim_hold(4);
+    }
+
+   else if (acc_input.f == RDIV)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing RDIV instruction\n", Time);
+	ACC = acc_input.operand / ACC;
+	sim_hold(20);
+    }
+
+   else if (acc_input.f == COMP)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing COMP instruction\n", Time);
+	acc_result = ACC - acc_input.operand;
+        acc_output.operand = 0;
+	  if (acc_result < 0)
+	   {acc_output.operand = 2;}
+	  if (acc_result == 0)
+	   {acc_output.operand = 1;}
+	acc_output.Type = 'C';
+	sim_hold(4);
+	send_RESULT_PKT(to_hway, acc_output);
+			// NEED TO BE ABLE TO SEND TO PROP as well as Dop - Type?
+    }
+   else if (acc_input.f == STOP)
+    {
+//Time = sim_clock();
+//printf("Time = %d ACC executing STOP instruction\n", Time);
+     acc_output.operand = 0;
+     acc_output.Type = 'Z';
+     sim_hold(4);
+     send_RESULT_PKT(to_hway, acc_output);
+    }
+
+   ACC_done = true;
+
+	my_state = ACC_IDLE;
+	dump_state();
+   }				// end of event from Dop
+    
+}				// end of while loop

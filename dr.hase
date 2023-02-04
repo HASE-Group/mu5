@@ -1,0 +1,622 @@
+// Project	MU5
+// Entity	DR
+// File		dr.hase
+// Start date	April 2013
+// Last update	March 2014
+
+/*
+  Size can be 1, 4, 8, 16, 32 bits
+  Size values are 0, 2, 3, 4, 5
+*/
+$class_decls
+
+  prop * myPROP;
+
+// structures and variables
+
+  bool i_waiting;
+  bool Dr_ready, s_done, c_done;
+  bool d_access, n_access;
+  bool c_cycle, f_cycle, l_cycle, s_cycle;
+  bool send_c, send_f, send_l, send_s;
+  bool mod_wait, no_mod, mod_ready;
+  bool d_output_ready, n_output_ready, s_output_ready;
+  bool SMVF_fill;
+  bool SCMP_fill;
+  bool OBS_ready;
+  bool BCfail, Lfail, size_error;
+  char ack;
+  int address, modifier, Modifier, Size;
+  int MSBA, MSbA, LSBA;			// size = no of bits in operand
+  int sts_cycle, phase;
+  int clock, Time;
+
+  t_dr_pkt dr_input;
+  t_seop_pkt Dr_out;
+  t_au_result dr_reply, mod_pkt, dop_result, prop_result;
+
+// classes
+
+$class_defs
+
+$body
+
+// set up  pointers to other entities
+
+  myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
+
+// predicates
+
+ sim_from_port Instrn_In(from_hway);
+ sim_from_port Mod_In(from_barith);
+ sim_from_port Ack_In(from_obs);
+ sim_from_port Result_In(from_dop);
+
+// variables
+
+  Dr_ready = true;
+  d_access = false;
+  i_waiting = false;
+  mod_wait = false;
+  no_mod = false;
+  mod_ready = false;
+  n_access = false;
+  c_cycle = false;
+  l_cycle = false;
+  s_cycle = false;
+  send_c = false;
+  send_f = false;
+  send_l = false;
+  send_s = false;
+  d_output_ready = false;
+  n_output_ready = false;
+  s_output_ready = false;
+  OBS_ready = true;
+  BCfail = false;
+  Lfail = false;
+  size_error = false;
+
+//  ack = 'K';
+  sts_cycle = 0;
+f_cycle = false;
+  my_state = DR_IDLE;
+  dump_state();
+
+while (!myPROP->Stop)
+{
+ if (sim_waiting(ev, Instrn_In) > 0)
+  {
+   SIM_CAST(t_dr_pkt, dr_input, ev);
+   i_waiting = true;
+  }
+ if (Dr_ready && i_waiting)
+   {
+    sim_hold(1);
+    Dr_ready = false;
+    i_waiting = false;
+//    sim_hold(1);
+    DRF.t = dr_input.t;
+    DRF.f = dr_input.f;
+    DRF.k = dr_input.k;
+    DRF.Type = dr_input.Type;
+    DN = dr_input.word1;
+    NA = dr_input.address;
+    dr_reply.Type = 'K';
+    sim_schedule(to_hway, 0.0, AU_PKT, SIM_PUT(t_au_result, dr_reply));
+    my_state = DR_BUSY;
+//    dump_state();
+    if ( (DRF.Type == 'V') && ((DRF.k == SB) || (DRF.k == S0)) )
+     {						// Data structure access
+      DR_O = dr_input.word1;
+      DR_TSB.DType = (dr_input.word0 >> 30) & 3;
+      DR_TSB.Size = (dr_input.word0 >> 27) & 7;
+      Size = DR_TSB.Size;
+      DR_TSB.Bound = dr_input.word0 & ((1 << 24) - 1);
+      d_access = true;
+     }
+    else if ( (DRF.Type == 'V') && ((DRF.k == DB) || (DRF.k == D0)) )
+     {
+      Size = DR_TSB.Size;
+      DR_TSB.Bound = dr_input.word0 & ((1 << 24) - 1);
+      d_access = true;
+     }		// Data structure access using existing descriptor
+ 
+    else if (DRF.Type == 'N' || DRF.Type == 'A' || DRF.Type == 'B'
+          || ((DRF.Type == 'V') && (DRF.t != STS)
+	&& (DRF.k == lit || DRF.k == V32 || DRF.k == V64 || DRF.k == stack) )
+      )
+      {n_access = true;}
+
+     if (D_XD_Instrn(DRF) && (DRF.Type == 'V' || DRF.Type == 'D'))
+      {
+       if (DRF.f == XDO_LD)
+        {
+	 XDR_O = dr_input.word1;
+ 	 Dr_ready = true;
+        }
+       if (DRF.f == DO_LD)
+        {
+	 DR_O = dr_input.word1;
+	 Dr_ready = true;
+        }
+       if (DRF.f == XD_LD)
+        {
+	 XDR_TSB.DType = (dr_input.word0 >> 30) & 3;
+	 XDR_TSB.Size = (dr_input.word0 >> 27) & 7;
+	 XDR_TSB.Bound = dr_input.word0 & ((1 << 24) - 1);
+	 XDR_O = dr_input.word1;
+	  Dr_ready = true;	// dr_done = true;
+        }
+       if (DRF.f == D_LD || DRF.f == D_SLD)
+        {
+	 DR_TSB.DType = (dr_input.word0 >> 30) & 3;
+	 DR_TSB.Size = (dr_input.word0 >> 27) & 7;
+	 DR_TSB.Bound = dr_input.word0 & ((1 << 24) - 1);
+	 DR_O = dr_input.word1;
+	 Dr_ready = true;
+	}
+       if (DRF.f == XD_ST)
+        {
+// assemble packet to OBS
+	 Dr_out.t = DRF.t;
+	 Dr_out.f = DRF.f;
+	 Dr_out.k = DRF.k;
+	 Dr_out.address = NA;
+	 Dr_out.d = 7;
+	 Dr_out.word0 = (XDR_TSB.DType << 30) | (XDR_TSB.Size << 27) | XDR_TSB.Bound;
+	 Dr_out.word1 = XDR_O;
+	 Dr_out.Type = DRF.Type;
+	 sim_hold(4);
+	 n_output_ready = true;
+        }
+       if (DRF.f == D_ST)
+        {
+// assemble packet to OBS
+	 Dr_out.t = DRF.t;
+	 Dr_out.f = DRF.f;
+	 Dr_out.k = DRF.k;
+	 Dr_out.address = NA;
+	 Dr_out.d = 7;
+	 Dr_out.word0 = (DR_TSB.DType << 30) | (DR_TSB.Size << 27) | DR_TSB.Bound;
+	 Dr_out.word1 = DR_O;
+	 Dr_out.Type = DRF.Type;
+	 sim_hold(4);
+	 n_output_ready = true;
+        }
+       if (DRF.f == XDB_LD)
+        {
+	 XDR_TSB.Bound = dr_input.word0 & ((1 << 24) - 1);
+	 Dr_ready = true;
+        }
+       if (DRF.f == DB_LD)
+        {
+	 DR_TSB.Bound = dr_input.word0 & ((1 << 24) - 1);
+	 Dr_ready = true;
+        }
+       if (DRF.f == XMOD)
+        {
+	 modifier = dr_input.word1;
+	 XDR_O = XDR_O + modifier;
+	 XDR_TSB.Bound = XDR_TSB.Bound - modifier;
+         if (XDR_TSB.Bound <= 0)
+	  {BCfail = true;}
+	 else
+	  {Dr_ready = true;}
+        }
+       if (DRF.f == MOD)
+        {
+	 modifier = dr_input.word1;
+	 DR_O = DR_O + modifier;
+	 DR_TSB.Bound = DR_TSB.Bound - modifier;
+         if (DR_TSB.Bound <= 0)
+	  {BCfail = true;}
+	 else
+	  {Dr_ready = true;}
+	}
+      dump_state();
+      }		// end of D_XD_Instrn
+
+// Byte/string orders
+// make a sequence of accesses so need a separate ready/ack system from
+// n_access and d_access
+
+     if (STS_Instrn(DRF))
+      {
+       if (DR_TSB.Bound == 0)
+        {
+         Lfail = true;
+         myPROP->Stop = true;
+        }
+       f_cycle = true;
+       Dr_out.t = DRF.t;
+       Dr_out.f = DRF.f;
+       Dr_out.k = DRF.k;
+       Dr_out.Type = DRF.Type;
+       Dr_out.address = DR_O;
+       Dr_out.d = 512;		// Dop bit 23 = 1 for mask_fill transfer to Dop
+       Dr_out.word0 = 0;
+       Dr_out.word1 = DN;
+       sim_hold(4);
+     }			// end of STS Instrn
+    dump_state();
+   }			// end of  Dr_ready & i_waiting
+
+  if (n_access)
+   {
+    Dr_out.t = DRF.t;
+    Dr_out.f = DRF.f;
+    Dr_out.k = DRF.k;
+    Dr_out.address = NA;
+    Dr_out.word0 = 0;
+    Dr_out.word1 = DN;
+    Dr_out.Type = DRF.Type;
+
+// create Dop bits (Dr_out.d)
+    MSBA =  (Dr_out.address & 1) << 2;	// Dr_out.word1 is a 32-bit word address
+    if (DRF.k == lit)
+     {MSBA = 4;}
+    MSbA = 0;
+    if ((DRF.k == V32) || (DRF.k == lit))
+     {LSBA = MSBA | 3;}
+    Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;
+    if ((Dr_out.Type == 'N') || (Dr_out.k == V64) || (Dr_out.k == stack))
+     {Dr_out.d = 7;}
+    sim_hold(4);
+    n_output_ready = true;
+    n_access = false;
+   }
+
+  if (d_access)
+   {
+    if ((DRF.k == SB) || (DRF.k == DB))
+     {mod_wait = true;}		// modified access
+    else
+     {no_mod = true;}
+    }
+   if (mod_wait && (sim_waiting(ev, Mod_In) > 0))
+    {
+     mod_wait = false;
+     SIM_CAST(int, Modifier, ev)
+     if ((DR_TSB.Bound - Modifier) < 0)
+      {
+       BCfail = true;
+       myPROP->Stop = true;
+      }
+     if (Size == 5)				// 32-bit operand
+      {modifier = Modifier << 2;}
+     else if (Size == 4)			// 16-bit operand
+      {modifier = Modifier << 1;}
+     else if ((Size == 0) || (Size == 2) || (Size == 3)) // 1-bit, 4-bit, 8-bit
+      {modifier = 0;}
+     else 
+      {
+       size_error = true;
+       myPROP->Stop = true;
+      }
+     mod_ready = true;
+    }				// end of modifier from B-arith
+   else if (no_mod)
+    {
+     no_mod = false;
+     modifier = 0;
+     mod_ready = true;
+    }
+
+   if (mod_ready)
+    {
+     mod_ready = false;
+     address = DR_O + modifier;	// nominally a byte address
+     MSBA = address & 7;
+     MSbA = 0;
+     if (Size < 4)			// < 16 bits
+      {LSBA = MSBA;}
+     else if (Size == 4)		// 16-bit
+      {LSBA = MSBA | 1;}
+     else if (Size == 5)		// 32-bit
+      {LSBA = MSBA | 3;}
+       if (Size == 2)
+        {MSbA = (address >> 1) & 4;}
+       else if (Size == 0)
+        {MSbA = (address >> 3) & 7;}
+     Dr_out.t = DRF.t;
+     Dr_out.f = DRF.f;
+     Dr_out.k = DRF.k;
+     Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;	// dopbits
+     Dr_out.word0 = 0;
+     Dr_out.word1 = 0;
+     Dr_out.address = address >> 2;
+     Dr_out.Type = DRF.Type;
+     sim_hold(4);
+     d_output_ready = true;
+     d_access = false;
+    }				// end of mod_ready
+
+ if (l_cycle)		// during SMVB, SMVE, SMVF, SCMP
+  {
+// create source byte address to send to OBS
+   Dr_out.k = S0;
+   Dr_out.Type = 'L';
+   Dr_out.address = XDR_O >> 2;
+   MSBA = XDR_O & 7;
+   MSbA = 0;
+   LSBA = MSBA;
+   Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;	// dopbits
+   sim_hold(4);
+   s_output_ready = true;
+   XDR_O = XDR_O + 1;
+   XDR_TSB.Bound = XDR_TSB.Bound - 1;
+   if ((Dr_out.f == SCMP) && (XDR_TSB.Bound == 0))
+    {SCMP_fill = true;}
+   send_l = true;
+   l_cycle = false;
+   dump_state();
+  }
+
+ if (s_cycle)
+  {
+   if (Dr_out.f == BMVB || Dr_out.f == SMVB)
+    {
+// create byte address to send to OBS
+     Dr_out.k = S0;
+     Dr_out.Type = 'S';
+     Dr_out.address = DR_O >> 2;
+     MSBA = DR_O & 7;
+     MSbA = 0;
+     LSBA = MSBA;
+     Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;	// dopbits
+     sim_hold(4);
+     s_output_ready = true;
+     DR_O = DR_O + 1;
+     DR_TSB.Bound = DR_TSB.Bound - 1;
+     s_done = true;		// BMVB & SMVB have only one cycle after 0th
+    }				// end of BMVB/SMVB
+   if (Dr_out.f == BMVE)
+    {
+// create byte address to send to OBS
+     Dr_out.k = S0;
+     Dr_out.Type = 'S';
+     Dr_out.address = DR_O >> 2;
+     MSBA = DR_O & 7;
+     MSbA = 0;
+     LSBA = MSBA;
+     Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;	// dopbits
+     Dr_out.word1 = DN;		//
+     sim_hold(4);
+     s_output_ready = true;
+     DR_O = DR_O + 1;
+     DR_TSB.Bound = DR_TSB.Bound - 1;
+     if (DR_TSB.Bound == 0)
+      {s_done = true;}
+    }				// end of BMVE
+
+   if (Dr_out.f == SMVE || Dr_out.f == SMVF)
+    {
+// create destination byte address to send to OBS
+     Dr_out.k = S0;
+     Dr_out.Type = 'S';
+     Dr_out.address = DR_O >> 2;
+     MSBA = DR_O & 7;
+     MSbA = 0;
+     LSBA = MSBA;
+     Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;	// dopbits
+     sim_hold(4);
+     s_output_ready = true;
+     DR_O = DR_O + 1;
+     DR_TSB.Bound = DR_TSB.Bound - 1;
+     if (XDR_TSB.Bound == 0)
+      {
+       if (Dr_out.f == SMVE)
+	{s_done = true;}
+       else if (Dr_out.f == SMVF)
+	{SMVF_fill = true;}	// changes fn to BMVB once request has been sent to Dop
+      }
+      if (DR_TSB.Bound == 0)
+       {s_done = true;}
+    }				// end of SMVE, SMVF
+   send_s = true;
+   s_cycle = false;
+   dump_state();
+  }				// end of s_cycle
+
+ if (c_cycle)
+  {
+// create byte address to send to OBS
+   Dr_out.k = S0;
+   Dr_out.Type = 'C';
+   Dr_out.address = DR_O >> 2;
+   MSBA = DR_O & 7;
+   MSbA = 0;
+   LSBA = MSBA;
+   Dr_out.d = (MSBA * 100) + (MSbA * 10) + LSBA;	// dopbits
+   sim_hold(4);
+   s_output_ready = true;
+   send_c = true;
+   c_cycle = false;
+   dump_state();
+  }				// end of c_cycle
+
+   if (f_cycle)
+    {
+     SMVF_fill = false;
+     SCMP_fill = false;
+     Dr_out.t = DRF.t;
+     Dr_out.f = DRF.f;
+     Dr_out.k = DRF.k;
+     Dr_out.Type = DRF.Type;
+     Dr_out.address = DR_O >> 2;
+     Dr_out.d = 1024;		// Dop bit 23 = 1 for mask_fill transfer to Dop
+     Dr_out.word0 = 0;
+     Dr_out.word1 = DN;
+     s_output_ready = true;
+     s_done = false;
+     c_done = false;
+    send_f = true;
+    f_cycle = false;
+    }
+
+ if (sim_waiting(ev, Ack_In) > 0)
+  {
+   SIM_CAST(char, ack, ev);
+   sim_hold(1);
+   OBS_ready = true;
+  }
+
+ if (sim_waiting(ev, Result_In) > 0)
+  {
+   SIM_CAST(t_au_result, dop_result, ev);
+   sim_hold(1);
+// T = Test register in PROP, set to /0 + on receipt of a test result 
+// prop_result.operand = 1 sets T = 0
+// prop_result.operand = 2 sets T -ve
+
+// SSA = source byte
+// SSB = destination byte
+// dop_result.operand = 0 by default
+// dop_result.operand = 1 if SSA = SSB
+// dop_result.operand = 2 if SSA - SSB -ve
+
+// BSCN if SSA = SSB prop_result.operand = 1
+//	if SSA /= SSB  prop_result.operand = 2
+
+   if (Dr_out.f == BSCN)
+    {
+// sets T = 0 if equality is found, -ve otherwise
+     if (dop_result.operand == 1)
+      {
+       prop_result.operand = 1;
+       c_done = true;
+      }
+     else
+      {
+       DR_O = DR_O + 1;
+       DR_TSB.Bound = DR_TSB.Bound - 1;
+       if (DR_TSB.Bound == 0)
+        {
+	 dop_result.operand = 2;
+	 c_done = true;
+	}
+      }
+    }		// end of BSCN
+   if (Dr_out.f == BCMP || Dr_out.f == SCMP)
+    {
+// sets T = 0 if no inequality is found
+// sets T = /0 +ve if SSA > SSB
+// sets T = -ve    if SSA < SSB
+
+     if (dop_result.operand != 1)		// found inequality
+      {
+       prop_result.operand = dop_result.operand;
+       c_done = true;
+      }
+     else
+      {
+       DR_O = DR_O + 1;
+       DR_TSB.Bound = DR_TSB.Bound - 1;
+       dump_state();
+       if (DR_TSB.Bound == 0)
+        {
+	 prop_result.operand = 1;		// = dop_operand
+	 c_done = true;
+        }
+      }
+    }		// end of BCMP/SCMP
+
+   if (c_done)
+    {
+     c_done = false;
+// send compare result to PROP
+     send_RESULT_PKT(to_hway,dop_result);
+     Dr_ready = true;
+     my_state = DR_IDLE;
+     dump_state();
+    }
+   else
+    {
+     if (Dr_out.f == BCMP || Dr_out.f == BSCN)
+      {c_cycle = true;}
+     else if (Dr_out.f == SCMP)
+      {
+       if (SCMP_fill)
+	{
+	 Dr_out.f = BCMP;
+	 c_cycle = true;
+	}
+       else
+        {l_cycle = true;}
+      }
+    }
+   send_c = false;
+  }	       // end of Result_In
+
+ else
+  {sim_hold(1);}
+//			end of possible events
+
+ if ((d_output_ready || n_output_ready) && OBS_ready)
+  {
+   send_SEOP_PKT(to_obs, Dr_out);
+    Dr_ready = true;   //dr_done = true;
+   d_output_ready = false;
+   n_output_ready = false;
+   OBS_ready = false;
+   my_state = DR_IDLE;
+   dump_state();
+  }
+
+ if (s_output_ready && OBS_ready)
+  {
+   send_SEOP_PKT(to_obs, Dr_out);
+   s_output_ready = false;
+   OBS_ready = false;
+   sim_hold(4);
+   if (SMVF_fill)
+    {Dr_out.f = BMVE;}	// tells Dop to use Filler
+   if (!s_done)
+    {
+     if (send_f)
+      {
+       send_f = false;
+       if ((Dr_out.f == BMVB) || (Dr_out.f == BMVE) || (Dr_out.f == BLGC))
+        {s_cycle = true;}
+      if ((Dr_out.f == SMVB) || (Dr_out.f == SMVE) || (Dr_out.f == SMVF)
+       || (Dr_out.f == SCMP))
+       {l_cycle = true;}
+      if ((Dr_out.f == BSCN) || (Dr_out.f == BCMP))
+       {c_cycle = true;}
+      }
+     else if (send_l)
+      {
+       send_l = false;
+       if ((Dr_out.f == SMVB) || (Dr_out.f == SMVE) || (Dr_out.f == SMVF))
+        {s_cycle = true;}
+       if (Dr_out.f == SCMP || SCMP_fill)
+	{c_cycle = true;}
+      }
+     else if (send_s)
+      {
+       send_s = false;
+       if ((Dr_out.f == BMVB) || (Dr_out.f == BMVE) || (Dr_out.f == BLGC))
+        {s_cycle = true;}
+       if ((Dr_out.f == SMVB) || (Dr_out.f == SMVE) || (Dr_out.f == SMVF))
+        {l_cycle = true;}
+      }
+    }
+   else
+    {
+     SMVF_fill = false;
+     Dr_ready = true;
+     my_state = DR_IDLE;
+     dump_state();
+     }
+  }		// end of s_output_ready
+
+}	// end of while loop
+
+$report
+
+ if (BCfail)
+  {printf("SIMULATION HALTED: Descriptor Bound Check fail, modifier = %d\n", modifier);}
+ if (Lfail)
+  {printf("SIMULATION HALTED: DR Length must be >0 at the start of an STS order \n");}
+ if (size_error)
+  {printf("SIMULATION HALTED: Descriptor Size error, size must be 1, 4, 8, 16 or 32 bits\n");}
