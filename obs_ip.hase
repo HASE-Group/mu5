@@ -166,7 +166,7 @@ void obs_ip::ResetAW()		// called by OBS_OP
   }
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -175,10 +175,6 @@ $body
   myDR = (dr*)sim.get_entity(sim.get_entity_id("DR"));
   myQUEUE = (obs_queue*)sim.get_entity(sim.get_entity_id("OBS_QUEUE"));
   myOBS_OP = (obs_op*)sim.get_entity(sim.get_entity_id("OBS_OP"));
-
-// predicates
-
- sim_from_port Instrn_In(from_dr);
 
 // variables
 
@@ -196,6 +192,12 @@ $body
   altered = 0;
   myQUEUE->Head_Tail.word0 = 0;
   myQUEUE->Head_Tail.word1 = 0;
+  
+$body
+
+// predicates
+
+ sim_from_port Instrn_In(from_dr);
 
 while (!myPROP->Stop)
 {

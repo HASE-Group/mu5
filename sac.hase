@@ -27,7 +27,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // predicate for use in sim_waiting test
 
@@ -49,6 +49,8 @@ $body
   i_wait = false;
   r_wait = false;
   w_wait = false;
+  
+$body
 
 while (!myPROP->Stop)
 {

@@ -14,11 +14,16 @@ bool time_out;
 
 $class_defs
 
-$body
+$pre
+	Stop = false;
+
+$startup
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
 
 time_out = false;
+
+$body
 
 while (!myPROP->Stop)
 {

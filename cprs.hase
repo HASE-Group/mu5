@@ -113,12 +113,15 @@ void cprs::SetIdle()
   dump_state();
 }
 
-$body
+$startup
 
   mySAC = (sac*) sim.get_entity( sim.get_entity_id("SAC"));
   myDisc = (d_store*) sim.get_entity( sim.get_entity_id("DISC_STORE"));
   address_error = false;
   my_state = CPRS_IDLE;
+  
+$body
+  
   dump_state();
 
 $report

@@ -39,18 +39,11 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // set up  pointers to other entities
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
-
-// predicates
-
- sim_from_port Instrn_In(from_hway);
- sim_from_port Mod_In(from_barith);
- sim_from_port Ack_In(from_obs);
- sim_from_port Result_In(from_dop);
 
 // variables
 
@@ -80,6 +73,16 @@ $body
   sts_cycle = 0;
 f_cycle = false;
   my_state = DR_IDLE;
+  
+$body
+
+// predicates
+
+ sim_from_port Instrn_In(from_hway);
+ sim_from_port Mod_In(from_barith);
+ sim_from_port Ack_In(from_obs);
+ sim_from_port Result_In(from_dop);
+
   dump_state();
 
 while (!myPROP->Stop)

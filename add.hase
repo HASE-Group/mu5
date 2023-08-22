@@ -17,8 +17,7 @@ $class_decls
 
 $class_defs
 
-$body
-
+$startup
 // set up  pointers to other entities
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
@@ -29,6 +28,8 @@ $body
 // predicates
 
 // variables
+
+$body
 
 
 while (!myPROP->Stop)

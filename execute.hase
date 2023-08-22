@@ -24,7 +24,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -33,12 +33,6 @@ $body
   myAssoc = (assoc*)sim.get_entity(sim.get_entity_id("ASSOC"));
   myRead = (ns_read*)sim.get_entity(sim.get_entity_id("READ"));
   myAssem = (assemble*)sim.get_entity(sim.get_entity_id("ASSEMBLE"));
-
-// predicates
-
- sim_from_port Clock_In(clock_in);
- sim_from_port H_Input(from_hway);
- sim_from_port BW_Input(bw_from_hway);
 
 // variables
 
@@ -55,6 +49,14 @@ $body
   control_wait = false;
   stack_wait = false;
   dwrite_wait = false;
+
+$body
+
+// predicates
+
+ sim_from_port Clock_In(clock_in);
+ sim_from_port H_Input(from_hway);
+ sim_from_port BW_Input(bw_from_hway);
 
 while (!myPROP->Stop)
 {

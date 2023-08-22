@@ -63,7 +63,7 @@ void obs_op::reset_full(int tag)
  Value.Update(tag, value_buffer);
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -71,12 +71,6 @@ $body
   myOBS_IP = (obs_ip*)sim.get_entity(sim.get_entity_id("OBS_IP"));
   myQUEUE = (obs_queue*)sim.get_entity(sim.get_entity_id("OBS_QUEUE"));
   myDOP = (dop*)sim.get_entity(sim.get_entity_id("DOP"));
-
-// predicates
-
- sim_from_port Result_In(from_dop);
- sim_from_port Ack_In(ack_from_dop);
- sim_from_port SAC_In(from_sac);
 
 // variables
   obs_op_ready = true;
@@ -97,6 +91,15 @@ $body
   myQUEUE->Head_Tail.word1 = 0;
   sim_hold(4);			// prevents obs_op seeing Q_ready before it's been
 				// initialised to 0 by obs_queue
+				
+$body
+
+// predicates
+
+ sim_from_port Result_In(from_dop);
+ sim_from_port Ack_In(ack_from_dop);
+ sim_from_port SAC_In(from_sac);
+				
 while (!myPROP->Stop)
 {
  if (sim_waiting(ev, Result_In) > 0)

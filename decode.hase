@@ -22,7 +22,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -41,6 +41,8 @@ $body
   DFout = DF;
   name = 0;
   base = 0;
+
+$body
 
 while (!myPROP->Stop)
 {

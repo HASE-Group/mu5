@@ -37,7 +37,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -49,6 +49,8 @@ $body
 
  B_ready = true;
  DR_ready = true;
+
+$body
 
 while (!myPROP->Stop)
 {

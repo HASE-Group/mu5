@@ -41,7 +41,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -62,6 +62,8 @@ $body
   UP_input.msia = 0;
   UP_input.seq = 0;
   UP_input.tag = 0;
+
+$body
 
 while (!myPROP->Stop)
 {

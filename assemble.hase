@@ -20,7 +20,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -31,6 +31,8 @@ $body
 
   setStop = false;
   F4out = F4;
+  
+$body
 
 while (!myPROP->Stop)
 {

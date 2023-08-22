@@ -67,7 +67,7 @@ void dop::Load_Fch()
 	FRc[4] = i_to_ch((FR.word1 >> 24) & 255);
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -99,6 +99,8 @@ $body
  byte2_mask = -1 ^ (255 << 8);
  byte1_mask = -1 ^ (255 << 16);
  byte0_mask = -1 ^ (255 << 24);
+ 
+$body
 
 while (!myPROP->Stop)
 {

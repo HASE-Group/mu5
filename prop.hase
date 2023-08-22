@@ -10,14 +10,14 @@ $class_decls
 
 // structures and variables
 
- bool Stop, Clear;
- bool DFheldbyF3, F1heldbyF3, F2heldbyF3, F3heldbyF3;
- bool F3holdDF, F3holdF1, F3holdF2, F3holdF3;
- bool F3freeDF, F3freeF1, F3freeF2, F3freeF3;
- bool DFholdDF, DFheldbyDF, DFfreeDF;
- bool F4held;
+ bool Stop, Clear = false;
+ bool DFheldbyF3, F1heldbyF3, F2heldbyF3, F3heldbyF3 = false;
+ bool F3holdDF, F3holdF1, F3holdF2, F3holdF3 = false;
+ bool F3freeDF, F3freeF1, F3freeF2, F3freeF3 = false;
+ bool DFholdDF, DFheldbyDF, DFfreeDF = false;
+ bool F4held = false;
 
- int CO, clock, Time;
+ int CO, clock, Time = 0;
  t_r_request co_to_ibu;
 
 // classes
@@ -42,8 +42,7 @@ void prop::Trace()		// send branch "From" address to IBU
 
 }
 
-$body
-
+$startup
 // set up  pointers to other entities
 
   myExecute = (execute*)sim.get_entity(sim.get_entity_id("EXECUTE"));
@@ -67,6 +66,9 @@ $body
   F4held = false;
 
   beat = 1;
+
+$body
+
   sim_hold(1);
   co_to_ibu.address = myExecute->CO;
   co_to_ibu.Type = 'T';

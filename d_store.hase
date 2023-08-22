@@ -24,7 +24,7 @@ $class_decls
   bool transfer;
   int i, l_block;
 
-$body
+$startup
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
   myConsole = (console*) sim.get_entity( sim.get_entity_id("CONSOLE"));
@@ -32,6 +32,8 @@ $body
   mySAC = (sac*)sim.get_entity(sim.get_entity_id("SAC"));
 
   transfer = false;
+
+$body
 
 while(!myPROP->Stop)
 {

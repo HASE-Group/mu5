@@ -142,7 +142,7 @@ void ns_read::D_Write()	// called from EXECUTE when it receives D or XD value
     dump_state();
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -152,10 +152,6 @@ $body
   myAssemble = (assemble*)sim.get_entity(sim.get_entity_id("ASSEMBLE"));
   myExecute = (execute*)sim.get_entity(sim.get_entity_id("EXECUTE"));
 
-// predicates
-
- sim_from_port Clock_In(clock_in);
- sim_from_port SAC_In(from_sac);
 
 // initialise variables
 
@@ -169,6 +165,13 @@ $body
   STACK_pending = false;
   F3out = F3;
   source = '-';
+
+$body
+
+// predicates
+
+ sim_from_port Clock_In(clock_in);
+ sim_from_port SAC_In(from_sac);
 
 while (!myPROP->Stop)
 {

@@ -45,7 +45,7 @@ void ibu_df::ClearIB_Registers()
    dump_state();
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -69,7 +69,11 @@ $body
    {
     UP_Record.Update(i, UP_input);
    }
+
+$body
+
   dump_state();
+
 
 while (!myPROP->Stop)
 //while (!stop)

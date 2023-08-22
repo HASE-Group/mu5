@@ -29,7 +29,7 @@ $class_decls
 
 $class_defs
 
-$body
+$startup
 
  byte3_mask = -1 ^ 255;
  byte2_mask = -1 ^ (255 << 8);
@@ -62,6 +62,8 @@ strcpy(ch_mem_buffer.word, "--------");
     l_block2.Update(i, d_mem_buffer);
     l_block3.Update(i, ch_mem_buffer);
   }
+  
+$body
 
 while (!myPROP->Stop)
 {

@@ -84,7 +84,7 @@ void assoc::Reset_Valid()
  Address.Update(Line(myRead->LR), w_buffer);
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
@@ -92,15 +92,18 @@ $body
   myAdd = (add*)sim.get_entity(sim.get_entity_id("ADD"));
   myRead = (ns_read*)sim.get_entity(sim.get_entity_id("READ"));
 
-// predicates
-
- sim_from_port Clock_In(clock_in);
 
 // variables
 
   F2held = false;
   write_back = false;
   write_new_va = false;
+
+$body
+
+// predicates
+ sim_from_port Clock_In(clock_in);
+
 
 while (!myPROP->Stop)
 {

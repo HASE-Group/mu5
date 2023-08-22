@@ -59,18 +59,13 @@ int obs_queue::tag_in_Q(int tag)
  else {return 0;}
 }
 
-$body
+$startup
 
 // set up  pointers to other entities
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
   myOBS_IP = (obs_ip*)sim.get_entity(sim.get_entity_id("OBS_IP"));
   myOBS_OP = (obs_op*)sim.get_entity(sim.get_entity_id("OBS_OP"));
-
-// predicates
-
-  sim_from_port Q_Input(queue_input);
-  sim_from_port BP_Input(bypass_input);
 
 // initialise variables
 
@@ -86,6 +81,14 @@ $body
     Queue[i].tag = 0;
    }
   my_state = OBS_QUEUE_IDLE;
+
+$body
+
+// predicates
+
+  sim_from_port Q_Input(queue_input);
+  sim_from_port BP_Input(bypass_input);
+
   dump_state();
 
 while(!myPROP->Stop)

@@ -41,13 +41,17 @@ $class_decls
 //entity references
   prop * myPROP;
 
-$body
+$startup
 
   myPROP = (prop*) sim.get_entity( sim.get_entity_id("PROP"));
 
   B_done = true;
   B_ready = true;
   my_state = B_IDLE;
+  
+  
+$body
+  
   dump_state();
 
 while(!myPROP->Stop)
