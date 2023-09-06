@@ -14,9 +14,6 @@ bool time_out;
 
 $class_defs
 
-$pre
-	Stop = false;
-
 $startup
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
