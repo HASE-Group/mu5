@@ -11,13 +11,13 @@ $class_decls
 // structures and variables
 
  bool Stop, Clear = false;
- bool DFheldbyF3, F1heldbyF3, F2heldbyF3, F3heldbyF3 = false;
- bool F3holdDF, F3holdF1, F3holdF2, F3holdF3 = false;
- bool F3freeDF, F3freeF1, F3freeF2, F3freeF3 = false;
- bool DFholdDF, DFheldbyDF, DFfreeDF = false;
- bool F4held = false;
+ bool DFheldbyF3, F1heldbyF3, F2heldbyF3, F3heldbyF3;
+ bool F3holdDF, F3holdF1, F3holdF2, F3holdF3;
+ bool F3freeDF, F3freeF1, F3freeF2, F3freeF3;
+ bool DFholdDF, DFheldbyDF, DFfreeDF;
+ bool F4held;
 
- int CO, clock, Time = 0;
+ int CO, clock, Time;
  t_r_request co_to_ibu;
 
 // classes
@@ -65,6 +65,7 @@ $startup
   F3freeF3 = false;
   F4held = false;
 
+  Time = 0;
   beat = 1;
 
 $body
