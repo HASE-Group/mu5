@@ -74,12 +74,6 @@ $startup
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
   myACC = (acc*)sim.get_entity(sim.get_entity_id("ACC"));
 
-// predicates
-
- sim_from_port Instrn_In(from_obs);
- sim_from_port Ack_In(from_acc);
- sim_from_port Result_In(from_hway);
-
 // variables
 
  Dop_ready = true;
@@ -101,6 +95,12 @@ $startup
  byte0_mask = -1 ^ (255 << 24);
  
 $body
+
+// predicates
+
+ sim_from_port Instrn_In(from_obs);
+ sim_from_port Ack_In(from_acc);
+ sim_from_port Result_In(from_hway);
 
 while (!myPROP->Stop)
 {
