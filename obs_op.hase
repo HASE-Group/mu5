@@ -89,9 +89,7 @@ $startup
   vline = 0;
   myQUEUE->Head_Tail.word0 = 0;
   myQUEUE->Head_Tail.word1 = 0;
-  sim_hold(4);			// prevents obs_op seeing Q_ready before it's been
-				// initialised to 0 by obs_queue
-				
+  				
 $body
 
 // predicates
