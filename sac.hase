@@ -29,15 +29,6 @@ $class_defs
 
 $startup
 
-// predicate for use in sim_waiting test
-
-  sim_from_port ibu_req(from_ibu);
-  sim_from_port ns_req(from_ns);
-  sim_from_port obs_req(from_obs);
-  sim_from_port ls_ready(a_from_ls);
-  sim_from_port ls_instr(i_from_ls);
-  sim_from_port ls_data(d_from_ls);
-
 // set up  pointers to other entities
 
 
@@ -52,7 +43,14 @@ $startup
   
 $body
 
-while (!myPROP->Stop)
+// predicates for use in sim_waiting tests
+
+  sim_from_port ibu_req(from_ibu);
+  sim_from_port ns_req(from_ns);
+  sim_from_port obs_req(from_obs);
+  sim_from_port ls_ready(a_from_ls);
+  sim_from_port ls_instr(i_from_ls);
+  sim_from_port ls_data(d_from_ls);while (!myPROP->Stop)
 {
 
   if (sim_waiting(ls_ready) > 0)
