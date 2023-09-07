@@ -10,7 +10,7 @@ $class_decls
 
 // structures and variables
 
- bool Stop, Clear = false;
+ bool Stop, Clear;
  bool DFheldbyF3, F1heldbyF3, F2heldbyF3, F3heldbyF3;
  bool F3holdDF, F3holdF1, F3holdF2, F3holdF3;
  bool F3freeDF, F3freeF1, F3freeF2, F3freeF3;
