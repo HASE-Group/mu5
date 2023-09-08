@@ -15,29 +15,32 @@ $class_decls
 //entity references
 
   prop * myPROP;
-  console*myConsole;
   l_store * myLocal;
   sac*mySAC;
 
 //structures and variables
 
-  bool transfer;
+  bool transfer, Program_error;
   int i, l_block;
-
 $startup
 
   myPROP = (prop*)sim.get_entity(sim.get_entity_id("PROP"));
-  myConsole = (console*) sim.get_entity( sim.get_entity_id("CONSOLE"));
   myLocal = (l_store*) sim.get_entity( sim.get_entity_id("LOCAL_STORE"));
   mySAC = (sac*)sim.get_entity(sim.get_entity_id("SAC"));
 
   transfer = false;
+  Program_error = false;
+  if ((Program <1) || (Program >3))
+   {
+	Program_error = true;
+	myPROP->Stop = true;
+   }
 
 $body
 
 while(!myPROP->Stop)
 {
- if(transfer)
+ if (transfer)
   {
    my_state = D_BUSY;
    dump_state();
@@ -50,70 +53,72 @@ page of the three programs. The contents of this table are constrained by the de
 of the memory arrays of the Local and Disc Stores in the .edl file.
 
 Disc Block
-0			Program 0  data
-1			Program 0  code
-2			Program 0  data
-3			Program 1  data
-4			Program 1  code
-5			Program 1  data
-6			Program 2 data
-7			Program 2 code
-8			Program 2 data
-9			Program 2 chars
+0			Program 1  data
+1			Program 1  code
+2			Program 1  data
+3			Program 2  data
+4			Program 2  code
+5			Program 2  data
+6			Program 3 data
+7			Program 3 code
+8			Program 3 data
+9			Program 3 chars
 */
 
-   if ( (l_block == 0) && (myConsole->Prog_No == 0) )
+   if ( (l_block == 0) && (Program == 1) )
     {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block0[i] = d_block0[i]; }
     }
 
-    else if ( (l_block == 0) && (myConsole->Prog_No == 1) )
+    else if ( (l_block == 0) && (Program == 2) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block0[i] = d_block3[i]; }
      }
 
-   else if ( (l_block == 0) && (myConsole->Prog_No == 2) )
+   else if ( (l_block == 0) && (Program == 3) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block0[i] = d_block6[i]; }
      }
 
-   else if ( (l_block == 1) && (myConsole->Prog_No == 0) )
+   else if ( (l_block == 1) && (Program == 1) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block1[i] = d_block1[i]; }
      }
 
-   else if ( (l_block == 1) && (myConsole->Prog_No == 1) )
+   else if ( (l_block == 1) && (Program == 2) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block1[i] = d_block4[i]; }
      }
 
-   else if ( (l_block == 1) && (myConsole->Prog_No == 2) )
+   else if ( (l_block == 1) && (Program == 3) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block1[i] = d_block7[i];}
      }
 
-   else if ( (l_block == 2) && (myConsole->Prog_No == 0) )
+   else if ( (l_block == 2) && (Program == 1) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block2[i] = d_block2[i]; }
      }
-   else if ( (l_block == 2) && (myConsole->Prog_No == 1) )
+   else if ( (l_block == 2) && (Program == 2) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block2[i] = d_block5[i]; }
      }
-   else if ( (l_block == 2) && (myConsole->Prog_No == 2) )
+
+   else if ( (l_block == 2) && (Program == 3) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block2[i] = d_block8[i]; }
      }
-   else if ( (l_block == 3) && (myConsole->Prog_No == 2) )
+
+   else if ( (l_block == 3) && (Program == 3) )
      {
 	 for (i=0; i<256; i++)
 	  {myLocal->l_block3[i] = d_block9[i]; }
@@ -127,3 +132,7 @@ Disc Block
  else
   {sim_hold(1);}
 }
+
+$report
+ if (Program_error)
+  { printf("Program must be 1, 2 or 3 \n"); }
