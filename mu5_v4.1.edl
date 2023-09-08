@@ -306,8 +306,9 @@ STRUCT (t_i_buffer, [RSTRUCT (t_mu5_instrn, instrn),
 	LINK (l_ack, [(ACK_PKT, RCHAR(ack,'K'))]);
 	)
 	GLOBALS (
-			  RINT (Max_Time_Left, 20000);
-			)
+                  RINT (Program, 1);
+		  RINT (Max_Time_Left, 20000);
+		)
 
 	ENTITYLIB (
 
